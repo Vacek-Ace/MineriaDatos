@@ -1,0 +1,118 @@
+---
+title: "Introducción"
+author: "Minería de Datos - Grado en Matemáticas"
+date: "Curso académico 2025-2026"
+format:
+  beamer:
+    theme: "Madrid"
+    colortheme: "dolphin"
+    fonttheme: "structurebold"
+    navigation: horizontal
+    section-titles: false
+    toc: false
+    slide-level: 2
+    aspectratio: 169
+    header-includes: |
+      \usepackage{dslab-new}
+      \usedslabmineria
+editor: source
+---
+
+# ¿Qué es Machine Learning?
+
+*We are drowning in information and starving for knowledge*. --- John Naisbitt
+
+*This deluge of data calls for automated methods of data analysis, which is what machine learning provides. In particular, we define **machine learning** as a set of methods that can automatically detect patterns in data, and then use the uncovered patterns to predict future data, or to perform other kinds of decision making under uncertainty (such as planning how to collect more data!)*
+
+Murphy, K. P. (2012). *Machine learning: a probabilistic perspective*. MIT press.
+
+# Un paso atrás... Inteligencia Artificial
+
+<!--# Explicar qué es, cómo se agrupa y cómo se clasifica el ML dentro de ella -->
+
+![Russell, S. J., & Norvig, P. (2010). Artificial intelligence a modern approach. London.](images/paste-F648CFCD.png){fig-align="center" width="396"}
+
+# Inteligencia Artificial
+
+La **inteligencia artificial** es un campo de las ciencias de la computación que se enfoca en el desarrollo de sistemas y programas informáticos capaces de realizar tareas que, cuando se ejecutan por parte de seres humanos, requieren inteligencia y aprendizaje. Estos sistemas de IA pueden aprender de datos, adaptarse a nuevas situaciones, tomar decisiones, resolver problemas y realizar tareas específicas sin intervención humana directa. La IA busca imitar y replicar procesos cognitivos y de toma de decisiones humanas, permitiendo a las máquinas realizar actividades que normalmente requerirían la inteligencia humana.
+
+# Inteligencia Artificial
+
+Multitud de disciplinas interconectadas:
+
+-   Robótica
+
+-   **Aprendizaje Automático**
+
+-   Procesamiento del Lenguaje Natural (NLP)
+
+-   Visión por computador
+
+-   Lógica difusa
+
+-   Redes neuronales artificiales --\> Deep Learning
+
+-   Reconocimiento de patrones
+
+-   Computación evolutiva
+
+# Ciencia de Datos
+
+![](images/paste-C4D207F2.png){fig-align="center"}
+
+# CRISP-DM
+
+Cross Industry Standard Process for Data Mining (CRISP-DM)
+
+![Kelleher, J. D., & Tierney, B. (2018). Data science. MIT Press.](images/paste-2EE60A54.png){fig-align="center" width="208"}
+
+# CRISP-DM
+
+-   **Business Understanding**: Comprender plenamente el problema empresarial que se aborda y diseñar una solución de análisis de datos para el mismo
+
+-   **Data Understanding**: Comprender las diferentes fuentes de datos disponibles en la entidad y los diferentes tipos de datos que contienen dichas fuentes
+
+-   **Data Preparation**: Poner las distintas fuentes de datos disponibles en un formato adecuado a partir del cual puedan inducirse modelos de aprendizaje automático
+
+-   **Modeling**: Crear distintos modelos de aprendizaje automático y selecccionar el mejor para su implantación
+
+-   **Evaluation**: Estudiar y validar el rendimiento del modelo para confirmar que es capaz de hacer predicciones precisas antes de ser desplegado
+
+-   **Deployment**: Integrar con éxito el modelo de aprendizaje automático en el proceso de la empresa/organización
+
+# Tipos de Machine Learning
+
+-   **Aprendizaje supervisado**: Datos $\mathbf{x}_i$ con etiquetas, La etiqueta $y_i$ refleja el valor de la variable objetivo (respuesta). El objetivo es "aprender" una función $f$ de los inputs $\mathbf{x}_i$ para predecir los outputs $y_i$ dado un conjunto $\mathcal{D}$ de datos formado por $n$ pares de observaciones:\
+    $$
+    \mathcal{D} = \{(\mathbf{x}_i,y_i)\}_{i=1}^n
+    $$
+
+    -   **Clasificación**: variable objetivo es cualitativa $y_i \in \{1,2,\dots,n\}$. Ej: predecir si un paciente tiene una enfermedad o no
+
+    -   **Regresión**: variable objetivo es cuantitativa $y_i \in \mathbb{R}$. Ej: predecir la resistencia de un material en base a sus características
+
+# Tipos de Machine Learning
+
+-   **Aprendizaje no supervisado**: Datos no etiquetados. Se parte de un conjunto de datos $\mathcal{D}=\{\mathbf{x}_i\}_{i=1}^n$ y el objetivo es descubrir patrones de interés entre los datos, describir los datos encontrando grupos de observaciones similares entre sí (Clustering). Ej: Encontrar grupos de clientes similares para una campaña de marketing.
+
+# Tipos de Machine Learning
+
+Algunos libros añaden la siguiente categoría:
+
+-   **Aprendizaje por refuerzo**. Para aprender cómo actuar a través de recompensas o castigos (un bebé aprendiendo a caminar)
+
+# El mundo con datos
+
+![Kelleher, J. D., & Tierney, B. (2018). Data science. MIT Press.](images/paste-55B63AC6.png){fig-align="center" width="305"}
+
+# Apliquemos ML
+
+![Kelleher, J. D., & Tierney, B. (2018). Data science. MIT Press.](images/paste-FE0B5BB6.png){fig-align="center" width="305"}
+
+# Referencias
+
+Murphy, K. P. (2012). *Machine learning: a probabilistic perspective*. MIT press.
+
+Russell, S. J., & Norvig, P. (2010). *Artificial intelligence a modern approach*. London.
+
+Kelleher, J. D., & Tierney, B. (2018). *Data science*. MIT Press.

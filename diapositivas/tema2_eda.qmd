@@ -1,0 +1,754 @@
+---
+title: "Análisis exploratorio de datos"
+author: "Minería de Datos - Grado en Matemáticas"
+date: "Curso académico 2025-2026"
+format:
+  beamer:
+    theme: "Madrid"
+    colortheme: "dolphin"
+    fonttheme: "structurebold"
+    navigation: horizontal
+    section-titles: false
+    toc: false
+    slide-level: 2
+    aspectratio: 169
+    header-includes: |
+      \usepackage{dslab-new}
+      \usedslabmineria
+editor: source
+---
+
+# Exploratory Data Analysis (EDA)
+
+```{r echo=FALSE}
+#| echo: false
+
+default_chunk_hook  <- knitr::knit_hooks$get("chunk")
+
+latex_font_size <- c("Huge", "huge", "LARGE", "Large", 
+                     "large", "normalsize", "small", 
+                     "footnotesize", "scriptsize", "tiny")
+
+knitr::knit_hooks$set(chunk = function(x, options) {
+  x <- default_chunk_hook(x, options)
+  if(options$size %in% latex_font_size) {
+    paste0("\n \\", options$size, "\n\n", 
+      x, 
+      "\n\n \\normalsize"
+    )
+  } else {
+    x
+  }
+})
+```
+
+*"Exploratory data analysis can never be the whole story, but nothing else can serve as the foundation stone as the first step"*
+
+*"Exploratory Data Analysis is detective work"*
+
+John Tukey
+
+# Importancia del EDA
+
+[Estudio natalidad](https://www.eldiario.es/nidos/no-ninos-nacen-toca-dar-luz-semana-21-probable-hacerlo-lunes-viernes_1_6400307.html): https://www.eldiario.es/nidos/no-ninos-nacen-toca-dar-luz-semana-21-probable-hacerlo-lunes-viernes_1\_6400307.html
+
+![](images/paste-91F9D1E2.png){fig-align="center" width="151" height="38"}
+
+![](images/paste-532839E8.png){fig-align="center" width="229"}
+
+```{r}
+library(dplyr)
+library(palmerpenguins)
+library(ggplot2)
+```
+
+# Introducción
+
+-   Primer análisis sobre cualquier conjunto de datos
+
+-   ¡Entender los datos!
+
+-   El análisis exploratorio de datos es un conjunto de técnicas que permiten resumir las características más importantes de un conjunto de datos, normalmente con especial énfasis en el uso de métodos de visualización gráfica
+
+-   No hay un guión estricto para realizar un EDA (¡somos detectives!)
+
+-   Fundamental adquirir conocimiento de los datos antes de usar un modelo de Aprendizaje Automático
+
+# Preguntas
+
+-   Objetivo EDA: comprensión profunda de los datos
+
+-   ¿Cómo hacerlo? Planteando preguntas:
+
+    -   ¿Tamaño de los datos?
+
+    -   ¿Tipos de variables?
+
+    -   ¿Hay variable objetivo? ¿Cómo es?
+
+    -   ¿Hay errores?
+
+    -   ¿Hay variables irrelevantes?
+
+    -   ¿Están las variables relacionadas?
+
+    -   ¿Hay atípicos?
+
+    -   ¿Tengo suficiente capacidad de cómputo para procesar los datos?
+
+# Datos atípicos (outliers)
+
+-   Datos que no están en consonancia con el resto, que destaca por ser distinto del resto
+
+-   Causas:
+
+    -   Errores de medición (humano o del sistema). Ej: Peso de un paciente: 800 kg o un medidor manipulado
+
+    -   Contaminación: la muestra contiene datos de una población distinta a la de interés
+
+    -   Desviaciones naturales
+
+-   Solo se modifica el dato si es un error. Se busca el valor real y, si no es posible, se pone como missing
+
+# Datos atípicos
+
+¿Diferencia entre el valor atípico rojo y el azul?
+
+![](images/paste-1A56712A.png){fig-align="center" width="326"}
+
+# Datos faltantes (missing)
+
+-   Dato vacío, dato perdido, NA
+
+-   Causas:
+
+    -   Error en la medición, la transcripción
+
+    -   No se puede lograr el dato
+
+-   Acciones:
+
+    -   Trabajar únicamente con los datos sin valores faltantes (representan un % bajo del total de los datos)
+
+    -   Imputación de missing (media o mediana de la variable, el valor de los puntos más similares, predicción de un modelo de ML)
+
+    -   Agrupar los missings en una nueva categoría ¡fácilmente distinguible! Ej: 9999
+
+# Tipos de variables
+
+-   **Cualitativa** (también llamada categórica): refleja una cualidad de la realidad, su valor no se representa con un número. Pueden ser:
+
+    -   Dicotómicas (Ej: Sí o no) o politómicas (Ej: grupo sanguíneo)
+
+    -   Nominales (Ej: color de ojos) u ordinales (Ej: nota de un examen Suspenso-Aprobado-Notable-Sobresaliente)
+
+-   **Cuantitativa**: su valor se indica con un número, se corresponde con características que representan cantidades. Ej: distancia en km, nivel de colesterol, temperatura, etc. Pueden ser:
+
+    -   Discretas: Toma un número finito o infinito numerable de valores. Ej: números naturales o un recuento
+
+    -   Continuas: Puede tomar infinitos valores. Ej: altura, peso
+
+# Resumen numérico de variables cualitativas
+
+-   **Moda**: valor más frecuente de la distribución
+
+    <!--# AÑADIR IMAGEN -->
+
+-   **Tabla de frecuencias** o **tabla de contingencia**: Muestra, para cada valor que tome una variable categórica, o para cada combinación de valores de dos o más variables categóricas, el número de casos que aparecen con dicho valor o combinación de valores
+
+```{r echo=FALSE}
+#| size: scriptsize
+table(penguins$species)
+prop.table(table(penguins$species))
+```
+
+# Resumen numérico de variables cuantitativas
+
+## Medidas de centralidad
+
+-   **Media**. Dada la variable $\mathbf{x} = (x_1,\dots,x_n)$ medida en $n$ observaciones, su media es
+
+    $$ \bar{x} = \frac{\sum_{i=1}^n x_i}{n}$$
+
+    Muy afectada por valores atípicos/extremos
+
+-   **Mediana**: valor que ocupa la posición central de los datos, i.e., deja el 50% de los puntos a su izquierda (por debajo de él) y el otro 50% a la derecha (por encima de él). Sea $\mathbf{x}$ una variable con $n$ observaciones, ordenados de menor a mayor, entonces:
+
+    -   Si $n$ es impar, la mediana es justamente el valor que ocupa justamente la posición central $\lfloor n/2 \rfloor +1$, $Med(\mathbf{x}) = x_{(\lfloor n/2 \rfloor + 1)}$
+
+    -   Si $n$ es par, la mediana será la media de los dos valores centrales, esto es, $Med(\mathbf{x}) = \frac{x_{( n/2 )}+x_{( n/2 + 1)}}{2}$
+
+# Resumen numérico de variables cuantitativas
+
+## Medidas de posición
+
+-   Valores **mínimo** y **máximo** de la variable: $x_{min}$, $x_{max}$
+
+-   Primer y tercer **cuartil**: Los valores que dejan por debajo un $p\%$ de los datos, siendo $p=25\%$ en el caso del primer cuartil ($Q_{1}$) y $p=75\%$ en el caso del tercer cuartil ($Q_3$). El segundo cuartil es la mediana.
+
+-   **Deciles**: Mismo concepto que los cuartiles pero de 10 en 10
+
+# Resumen numérico de variables cuantitativas
+
+**Medidas de dispersión**: ¿Cómo varían los datos en torno a los valores centrales?
+
+::: {.columns}
+
+::: {.column width="50%"}
+```{r echo=TRUE}
+#| size: scriptsize
+a <- c(1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
+b <- c(3, 6, 4, 5, 5, 6, 6, 5, 7, 8)
+```
+
+**Serie a:**
+
+- Media: `r mean(a)`
+- Desviación típica: `r round(sd(a), 2)`
+
+**Serie b:**
+
+- Media: `r mean(b)`  
+- Desviación típica: `r round(sd(b), 2)`
+:::
+
+::: {.column width="50%"}
+```{r echo=FALSE, out.width="100%", fig.align='center'}
+# Crear los datos
+a <- c(1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
+b <- c(3, 6, 4, 5, 5, 6, 6, 5, 7, 8)
+
+# Crear dataframe para ggplot
+library(ggplot2)
+datos <- data.frame(
+  index = rep(1:10, 2),
+  valores = c(a, b),
+  serie = rep(c("Serie a", "Serie b"), each = 10)
+)
+
+# Crear el gráfico
+ggplot(datos, aes(x = index, y = valores, color = serie)) +
+  geom_point(size = 3) +
+  geom_line(alpha = 0.7, size = 1) +
+  facet_wrap(~serie, ncol = 2) +
+  labs(x = "Índice", y = "Valores", 
+       title = "Comparación de dispersión") +
+  theme_minimal() +
+  theme(legend.position = "none",
+        plot.title = element_text(size = 11),
+        axis.text = element_text(size = 8),
+        strip.text = element_text(size = 10))
+```
+:::
+
+:::
+
+Ambas tienen la misma media pero diferente variabilidad
+
+# Resumen numérico de variables cuantitativas
+
+## Medidas de dispersión
+
+-   **Rango** o **recorrido**: $Rango = x_{max} - x_{min}$
+
+-   **Varianza**: Mide la dispersión de los valores de la variable respecto a la media
+
+    -   Varianza **muestral**: $s^{2} =\frac{1}{n-1} \sum_{i=1}^n (x_i - \bar{x})^{2}$
+
+    -   Varianza **poblacional**: $\sigma^{2} =\frac{1}{N} \sum_{i=1}^n (x_i - \mu)^{2}$ , siendo $N$ el tamaño de la población y $\mu$ su media
+
+-   **Desviación típica**: raíz cuadrada de la varianza muestral o poblacional.
+
+    -   Desviación típica **muestral**: $s = \sqrt{s^{2}}$
+
+    -   Desviación típica **poblacional**: $\sigma = \sqrt{\sigma^{2}}$
+
+    Interpretación más sencilla al medir la dispersión en las mismas unidades que la variable
+
+# Resumen numérico de variables cuantitativas
+
+## Medidas de dispersión
+
+-   **Rango intercuartílico**: diferencia entre el tercer y el primer cuartil $IQR = Q_3 - Q_1$
+
+-   **Coeficiente de variación**: representa la desviación típica en unidades de la media $CV = s / \bar{x}$. Se suele expresar en porcentaje. Por ejemplo, CV = 60% indica que el valor de la desviación típica es 0.6 veces la magnitud de la media.
+
+<!--# Importancia de la exploración y los gráficos. El cuarteto de Anscombe. https://www.research.autodesk.com/publications/same-stats-different-graphs/  -->
+
+# Gráficos univariantes: cualitativas
+
+**Diagrama de barras**
+
+```{r echo=FALSE,out.width="45%",fig.align = 'center'}
+#| size: scriptsize
+library(ggplot2)
+ggplot(penguins, aes(species)) + geom_bar(fill = "orange") + 
+  theme_bw() + 
+  labs(title = "Pingüinos por especie", 
+       x = "Especie",
+       y = "Frecuencia absoluta")
+
+```
+
+# Gráficos univariantes: cualitativas
+
+**Gráfico de tarta**
+
+```{r echo=FALSE,out.width="50%",fig.align = 'center'}
+#| size: scriptsize
+
+penguins %>% count(species) %>% ggplot(aes(x="", y=n, fill=species)) +
+  geom_bar(stat="identity", width=1) +
+  coord_polar("y", start=0) +
+  geom_text(aes(label = n),
+            position = position_stack(vjust = 0.5))+
+  theme_void()
+
+```
+
+**Problema**: ojo humano tiene problemas para percibir correctamente diferencias en sectores angulares
+
+# Gráficos univariantes: cualitativas
+
+Gráficos de gofre (*waffle*)
+
+```{r echo=FALSE, out.width="80%", fig.align="center"}
+#| size: scriptsize
+
+library(ggplot2)
+library(patchwork)
+
+# Datos (equivalente al original)
+city_a_data <- c(classic = 49, hybrid = 33, electric = 18)
+city_b_data <- c(classic = 69, hybrid = 26, electric = 5)
+
+# Colores exactos
+colors_vehicles <- c("classic" = "#A91C68", "hybrid" = "#53D5D9", "electric" = "#AFD953")
+
+# Función para crear waffle (equivalente a waffle() original)
+create_waffle_chart <- function(values, names, title, colors) {
+  rows <- 5
+  total <- sum(values)
+  cols <- ceiling(total / rows)
+  
+  waffle_data <- expand.grid(y = 1:rows, x = 1:cols)
+  waffle_data <- waffle_data[1:total, ]
+  
+  categories <- rep(names, values)
+  waffle_data$category <- categories
+  
+  ggplot(waffle_data, aes(x = x, y = y, fill = category)) +
+    geom_tile(color = "white", size = 1.2) +
+    scale_fill_manual(values = colors, name = "Vehicle Type") +
+    coord_equal() +
+    theme_void() +
+    theme(
+      plot.title = element_text(hjust = 0.5, size = 12, face = "bold"),
+      legend.position = "none"
+    ) +
+    labs(title = title)
+}
+
+# Crear gráficos (equivalente a iron())
+p_a <- create_waffle_chart(city_a_data, names(city_a_data), "City A", colors_vehicles)
+p_b <- create_waffle_chart(city_b_data, names(city_b_data), "City B", colors_vehicles)
+
+# Combinar (equivalente a iron())
+p_a + p_b + plot_layout(guides = "collect") & theme(legend.position = "bottom")
+```
+
+
+# Gráficos univariantes: cuantitativas
+
+<!--# HACER ESTA GRÁFICA YO (en los atícpicos poner outlier potencial) https://conceptosclaros.com/como-ser-mas-rapido-boxplot-estadistica-descriptiva-parte2/ -->
+
+**Diagrama de cajas y bigotes (boxplot)**
+
+![](images/paste-08F8572D.png){fig-align="center" width="401"}
+
+# Gráficos univariantes: cuantitativas
+
+**Diagrama de cajas y bigotes (boxplot)**
+
+```{r echo=FALSE, out.width="60%",fig.align = 'center'}
+#| size: scriptsize
+library(car)
+library(Hmisc)
+library(MASS)
+Boxplot(~glu, data = Pima.te, col= 'orange')
+```
+
+# Gráficos univariantes: cuantitativas
+
+**Histograma**
+
+```{r echo=FALSE, out.width="60%",fig.align = 'center'}
+#| size: scriptsize
+# Histograma
+ggplot(Pima.te, aes(x = glu)) +
+geom_histogram(fill="white", colour="black") +
+ggtitle('Histograma glucose')
+```
+
+# Gráficos univariantes: cuantitativas
+
+**Gráfico de densidad**
+
+```{r echo=FALSE,out.width="60%",fig.align = 'center'}
+#| size: scriptsize
+ggplot(Pima.te, aes(x = glu)) +
+geom_density() +
+ggtitle('KDE glucose')
+```
+
+# Gráficos univariantes: cuantitativas
+
+**Histograma + gráfico de densidad**
+
+```{r echo=FALSE,out.width="60%",fig.align = 'center'}
+#| size: scriptsize
+
+ggplot(Pima.te, aes(x = glu)) +
+ geom_histogram(aes(y = after_stat(density)), 
+                   position = "identity", 
+                   color = "darkblue", fill = "lightblue", bins=20) +
+  geom_density(lwd = 1, colour = 1)
+```
+
+# Gráficos multivariante
+
+**Diagrama de barras**
+
+```{r echo=FALSE,out.width="80%",out.height="60%",fig.align = 'center'}
+#| size: scriptsize
+library(gridExtra)
+
+# Grouped
+barplot_grouped <- ggplot(diamonds, aes(color, fill=cut)) + geom_bar(position="dodge")
+# Stacked
+barplot_stacked <- ggplot(diamonds, aes(color, fill=cut)) + geom_bar(position="stack")
+grid.arrange(barplot_grouped, barplot_stacked, ncol=2)
+```
+
+# Gráficos multivariante
+
+**Diagrama de barras** <!--#  PONER APILADOS (STACK) Y NO STACK facet wrap -->
+
+```{r echo=FALSE,out.width="50%",fig.align = 'center'}
+#| size: scriptsize
+# Por paneles
+ggplot(diamonds, aes(color)) + geom_bar() +
+facet_wrap(~ cut)
+```
+
+# Gráficos multivariante
+
+**Histogramas conjuntos**
+
+```{r echo=FALSE,out.width="100%",out.height="60%",fig.align = 'center'}
+#| size: scriptsize
+# library
+library(ggplot2)
+library(dplyr)
+library(pdp) #pima dataset
+
+p <- pima %>%
+  ggplot( aes(x=glucose, fill=diabetes)) +
+    geom_histogram( color="#e9ecef", alpha=0.4, position = 'identity') +
+    scale_fill_manual(values=c("black", "yellow")) +
+    theme_bw() +
+    labs(fill="")
+p
+```
+
+# Gráficos con categorías
+
+**Histogramas conjuntos**
+
+Origen del gráfico: [From Data to Viz](https://www.data-to-viz.com/story/OneNumOneCatSeveralObs.html)
+
+```{r echo=FALSE,out.width="100%",out.height="60%",fig.align = 'center'}
+#| size: scriptsize
+# Libraries
+library(tidyverse)
+library(viridis)
+library(forcats)
+
+# Load dataset from github
+data_cia <- read.table("https://raw.githubusercontent.com/zonination/perceptions/master/probly.csv", header=TRUE, sep=",")
+data_cia <- data_cia %>%
+  gather(key="text", value="value") %>%
+  mutate(text = gsub("\\.", " ",text)) %>%
+  mutate(value = round(as.numeric(value),0))
+
+# plot
+p <- data_cia %>%
+  mutate(text = fct_reorder(text, value)) %>%
+  ggplot( aes(x=value, color=text, fill=text)) +
+    geom_histogram(alpha=0.6, binwidth = 5) +
+    scale_fill_viridis(discrete=TRUE) +
+    scale_color_viridis(discrete=TRUE) +
+    theme_minimal() +
+    theme(
+      legend.position="none",
+      panel.spacing = unit(0.1, "lines"),
+      strip.text.x = element_text(size = 8)
+    ) +
+    xlab("") +
+    ylab("Assigned Probability (%)") +
+    facet_wrap(~text)
+p
+```
+
+# Gráficos con categorías
+
+Origen del gráfico: [From Data to Viz](https://www.data-to-viz.com/story/OneNumOneCatSeveralObs.html)
+
+```{r echo=FALSE,out.width="100%",out.height="60%",fig.align = 'center'}
+#| size: scriptsize
+data_cia %>%
+  mutate(text = fct_reorder(text, value)) %>%
+  ggplot( aes(x=text, y=value, fill=text)) +
+    geom_boxplot() +
+    geom_jitter(color="grey", alpha=0.3, size=0.9) +
+    scale_fill_viridis(discrete=TRUE) +
+    theme_light() +
+    theme(
+      legend.position="none"
+    ) +
+    coord_flip() +
+    xlab("") +
+    ylab("Assigned Probability (%)")
+
+```
+
+# Gráficos con categorías
+
+Origen del gráfico: [From Data to Viz](https://www.data-to-viz.com/story/OneNumOneCatSeveralObs.html)
+
+![](images/paste-ECF65053.png){fig-align="center" width="349"}
+
+# Gráficos multivariante
+
+**Corrplot**
+
+```{r echo = FALSE,out.width="100%",out.height="60%",fig.align = 'center'}
+library(corrplot)
+M = cor(iris[,-5])
+corrplot(M)
+```
+
+# Gráficos multivariante
+
+**Diagrama de dispersión**
+
+```{r echo=FALSE,out.width="100%",out.height="60%",fig.align = 'center'}
+ggplot(penguins, aes(x = body_mass_g, y = bill_depth_mm)) +
+    geom_point()
+```
+
+# Gráficos multivariante
+
+**Diagrama de dispersión**
+
+```{r echo=FALSE,out.width="100%",out.height="60%",fig.align = 'center'}
+ggplot(penguins, aes(x = body_mass_g, y = bill_depth_mm)) +
+    geom_point(aes(color = factor(island)))
+```
+
+# Gráficos multivariante
+
+**Diagrama de dispersión**
+
+```{r echo=FALSE,out.width="100%",out.height="60%",fig.align = 'center'}
+## Por paneles
+pima %>%
+mutate(test = factor(diabetes, labels = c('negative', 'positive'))) %>%
+ggplot(aes(x = pressure, y = glucose)) +
+geom_point() +
+geom_smooth(method = "lm") +
+facet_wrap(~ diabetes)
+```
+
+# Gráficos multivariante
+
+**Diagrama de puntos (dotplot): categórica vs continua**
+
+```{r echo=FALSE,out.width="100%",out.height="60%",fig.align = 'center'}
+## Cleveland dotplot (variable cuantitativa frente a categórica)
+## Media de activos por sector para todos los países
+library(car)
+library(dplyr)
+aa2 <- Ornstein %>%
+  filter(sector != 'BNK') %>%
+  group_by(sector) %>%
+  summarise(avg_assets = mean(assets))
+ggplot(aa2,aes(x = avg_assets, y = reorder(sector, avg_assets))) +
+  geom_point(size = 5)
+```
+
+# Gráficos multivariante
+
+**Diagrama de dispersión por categorías**
+
+```{r echo=FALSE,out.width="100%",out.height="60%",fig.align = 'center'}
+library(dplyr)
+## Por paneles
+Ornstein %>%
+  filter(sector != 'BNK') %>%
+  group_by(nation, sector) %>%
+  summarise(avg_assets = mean(assets)) %>%
+  ggplot(aes(x = avg_assets, y = sector)) +
+  geom_point(size = 5) +
+  facet_wrap(~ nation)
+```
+
+# Gráficos multivariantes
+
+**Heatmap (mapa de calor)**
+
+```{r echo=FALSE,out.width="100%",out.height="70%",fig.align = 'center'}
+# Diagrama de calor (heatmap)
+# The mtcars dataset:
+data <- as.matrix(mtcars)
+
+# No dendrogram nor reordering for neither column or row
+heatmap(data, Colv = NA, Rowv = NA, scale="column")
+
+```
+
+# ggpairs
+
+https://r-charts.com/es/correlacion/ggpairs/
+
+```{r echo=FALSE, out.width="60%", fig.align = 'center'}
+library(GGally)
+ggpairs(iris,                 # Data frame
+        columns = 1:4,        # Columnas
+        aes(color = Species,  # Color por grupo (var. categórica)
+            alpha = 0.5))
+```
+
+# Transformación de variables
+
+-   Distribución adecuada de la variable (Ej: distribución Normal)
+
+-   Relación con otras variables y visualización
+
+-   Igualar dispersión entre variables --\> variables en escalas comparables
+
+-   Variables cuantitativas --\> variables categóricas
+
+# Transformación de variables
+
+-   Distribución adecuada de la variable (Ej: distribución Normal)
+
+```{r echo=FALSE,out.width="80%",out.height="60%",fig.align = 'center'}
+#| size: scriptsize
+bank = read.csv('https://raw.githubusercontent.com/rafiag/DTI2020/main/data/bank.csv')
+
+    hist_var <- ggplot(data = bank) +
+      geom_histogram(mapping = aes(x = age), binwidth = 5)
+
+    hist_log <- ggplot(data = bank) +
+      geom_histogram(mapping = aes(x = log(age)), binwidth = .1)
+
+    grid.arrange(hist_var, hist_log, ncol=2)
+```
+
+# Transformación de variables
+
+Obtener una variable cuya distribución de valores sea:
+
+-   Más simétrica y con menor dispersión que la original
+
+-   Más semejante a una distribución normal (e.g. para algunos modelos lineales)
+
+-   Restringida en un intervalo de valores (e.g. \[0,1\])
+
+Transformaciones de escala-potencia o transformaciones Box-Cox:
+
+$$x(\lambda)= \begin{cases} \frac{x^\lambda-1}{\lambda},& \text{cuando } \lambda \neq 0,\\ log_e(x), & \text{cuando } \lambda = 0 \end{cases}$$
+
+# Transformación de variables
+
+```{r echo=FALSE,out.width="100%",out.height="80%",fig.align = 'center'}
+#| size: scriptsize
+bank %>% symbox(~ age, data = .)
+```
+
+# Transformación de variables
+
+-   Relación con otras variables y visualización
+
+```{r echo=FALSE,out.width="100%",out.height="60%",fig.align = 'center'}
+#| size: scriptsize
+library(MASS)
+a <- ggplot(Animals, aes(x = body, y = brain)) + geom_point() + ggtitle('Sin transformación')
+b <- ggplot(Animals, aes(x = log10(body), y = log10(brain))) + geom_point() + geom_smooth(method = "loess") + ggtitle('Log')
+
+
+grid.arrange(a, b, ncol=2 ,top = 'Relación peso medio cerebro vs. peso medio corporal animales terrestres')
+```
+
+# Transformación de variables
+
+Igualar dispersión entre variables --\> variables en escalas comparables
+
+-   **Reescalado o cambio de escala**: Sumar o restar una constante a un vector, y luego multiplicar o dividir por una constante. Por ejemplo, para transformar la unidad de medida de una variable (grados Farenheit → grados Celsius).
+
+-   **Normalización**: Dividir por la norma de un vector, por ejemplo para hacer su distancia euclídea igual a 1.
+
+-   **Estandarización**: Consiste en restar a un vector una medida de localización o nivel (e.g. media, mediana) y dividir por una medida de escala (dispersión). Sea $X$ una variable aleatoria con media $\bar{x}$ y desviación típica $s$:
+
+    $\text{Estandarización} \rightarrow Y=\frac{X-\overline{x}}{s}$
+
+    Distribución con media 0 y desviación típica 1
+
+    $\text{Escalado} \space min-max \rightarrow Y=\frac{X-min_x}{max_x-min_x}$
+
+# Transformación de variables
+
+Variables cuantitativas --\> variables categóricas:
+
+-   Agrupación de datos numéricos. Ej: Edad -\> "menos de 18 años", "18-30 años", "31-45 años", "46-60 años", "mayor de 60"
+
+-   Creación de variables binarias. Ej: clientes satisfechos / insatisfechos
+
+# Más y más
+
+-   Series temporales
+
+-   Mapas
+
+-   Gráficos específicos de clustering
+
+-   Pirámides de población
+
+-   QQplot
+
+-   etc
+
+# Más y más
+
+https://elartedeldato.com/
+
+https://rkabacoff.github.io/datavis/ Modern Data Visualization with R
+
+https://r-graph-gallery.com/ggplot2-package.html
+
+https://r-graph-gallery.com/
+
+https://www.data-to-viz.com/
+
+# Bibliografía de utilidad para el lector
+
+-   "Fundamentos de ciencia de datos con R" coordinado por [Gema Fernández-Avilés y José-María Montero](https://blog.uclm.es/gemafaviles/): https://cdr-book.github.io/
+
+-   Weiss, N. A., & Weiss, C. A. (2017). *Introductory statistics*. London: Pearson.
+
+-   "Estadística Aplicada a las Ciencias y la Ingeniería" escrito por [Emilio L. Cano](http://emilio.lcano.com/). https://emilopezcano.github.io/estadistica-ciencias-ingenieria/index.html
+
+-   R for Data Science: https://r4ds.hadley.nz/eda
+
+    -   Primera versión en castellano: https://es.r4ds.hadley.nz/

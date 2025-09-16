@@ -1,0 +1,239 @@
+---
+title: "Datos"
+author: "Minería de Datos - Grado en Matemáticas"
+date: "Curso académico 2025-2026"
+format:
+  beamer:
+    theme: "Madrid"
+    colortheme: "dolphin"
+    fonttheme: "structurebold"
+    navigation: horizontal
+    section-titles: false
+    toc: false
+    slide-level: 2
+    aspectratio: 169
+    header-includes: |
+      \usepackage{dslab-new}
+      \usedslabmineria
+editor: source
+---
+
+# Datos en la Ciencia de Datos
+
+```{r echo=FALSE}
+#| echo: false
+
+default_chunk_hook  <- knitr::knit_hooks$get("chunk")
+
+latex_font_size <- c("Huge", "huge", "LARGE", "Large", 
+                     "large", "normalsize", "small", 
+                     "footnotesize", "scriptsize", "tiny")
+
+knitr::knit_hooks$set(chunk = function(x, options) {
+  x <- default_chunk_hook(x, options)
+  if(options$size %in% latex_font_size) {
+    paste0("\n \\", options$size, "\n\n", 
+      x, 
+      "\n\n \\normalsize"
+    )
+  } else {
+    x
+  }
+})
+```
+
+![](images/paste-C4D207F2.png){fig-align="center"}
+
+# Tipos de datos
+
+-   Según la **estructuras**: Datos estructurados vs no estructurados
+
+-   Según el **comportamiento en el tiempo**: Datos estáticos vs datos dinámicos
+
+# Datos estructurados vs no estructurados
+
+-   Datos **estructurados**: poseen longitud, tipo, formato y tamaño definidos. Se organizan en formatos de bases de datos, por ejemplo, tablas.
+
+    ![](images/paste-F6017616.png){fig-align="center" width="415"}
+
+-   Datos **no estructurados**: Carecen de formato específico. Documentos de texto, vídeo, datos de redes sociales, correos electrónicos, etc. Se almacenan en su formato original y requieren un procesamiento para ser analizados.
+
+# Datos estáticos vs dinámicos
+
+-   **Estáticos**: no varían a lo largo del tiempo. Ejemplo: censo, datos de natalidad.
+
+-   **Dinámicos**: evolucionan con el tiempo. Ejemplo: base de datos de una tienda con productos y precios
+
+# Obtención de datos
+
+Recopilación de información en un dominio específico.
+
+Obtención datos \--\> Procesamiento de datos
+
+Algunas técnicas de obtención de datos:
+
+-   Encuestas y entrevistas
+
+-   Toma de muestras
+
+-   Web scraping
+
+-   Sensores y dispositivos IoT
+
+-   etc
+
+# Fuentes de datos (¡para practicar!)
+
+-   [UCI Machine Learning repository](https://archive.ics.uci.edu/)
+
+-   [OpenML](https://www.openml.org/)
+
+-   [Kaggle](https://www.kaggle.com/datasets)
+
+-   [KEEL dataset repository](https://sci2s.ugr.es/keel/datasets.php) ([Artículo de referencia](https://sci2s.ugr.es/keel/pdf/keel/articulo/2011-KEEL-dataset-MVLSC.pdf))
+
+-   [Penn Machine Learning Benchmarks](https://epistasislab.github.io/pmlb/) ([Artículo de referencia](https://link.springer.com/article/10.1186/s13040-017-0154-4))
+
+-   [Eurostat](https://ec.europa.eu/eurostat/data/database)
+
+-   [Datos abiertos del Gobierno de España](https://datos.gob.es/es)
+
+# Datos en R
+
+-   R incluye en sus librerías distintos conjuntos de datos
+
+-   Librería "datasets" contiene bastantes. Para ver la lista completa, basta ejecutar `library(help = "datasets")`
+
+# Datos en R
+
+```{r echo=TRUE}
+#| size: scriptsize
+# install.packages('palmerpenguins')
+library(palmerpenguins)
+
+str(penguins)
+```
+
+# ¿Con qué tipo de datos vamos a trabajar?
+
+-   Datos tabulares: $\mathcal{D}=\{(\mathbf{x}_i,y_i)\}_{i=1}^n$ <!--# PONER MATRIZ  -->
+
+-   Observaciones (filas): items, instancias, puntos, elementos, objetos, etc. $\mathbf{x}_i = (x_{i1},x_{i2},\dots,x_{ip})$
+
+-   Variables (columnas): atributos, características (del inglés *features*) $\mathbf{f}_j = \mathbf{x}_j = (x_{1j},\dots,x_{nj})$
+
+Las variables explicativas de forma matricial:
+
+$$ \mathbf{X}=\left( {\begin{array}{ccccc}
+x_{11}&\cdots& x_{1j}&\cdots&x_{1p} \\
+\vdots&\ddots &\vdots&\ddots&\vdots\\
+x_{i1}&\cdots& x_{ij}&\cdots&x_{ip} \\
+\vdots&\ddots &\vdots&\ddots&\vdots\\
+x_{n1}&\cdots& x_{nj}&\cdots&x_{np} \\
+\end{array}} \right) $$
+
+# Datos
+
+Primer paso: **Entender los datos**
+
+-   ¿Cuál es la dimensión de los datos? ¿Cuál es el número de filas (instancias) y de columnas (variables)?
+
+-   ¿Qué significan las variables?
+
+-   ¿Hay datos erróneos?
+
+-   ¿Hay datos faltantes?
+
+¡Practiquemos un poco más con estos datos en R!
+
+# Particiones de los datos
+
+¿Con qué datos entrenamos y evaluamos los modelos de Machine Learning?
+
+![](images/TrainMother.png){fig-align="center" width="456"}
+
+# Particiones de los datos
+
+-   **Entrenamiento (Training)**: Muestra para entrenar el modelo, el modelo aprenderá el comportamiento de los datos con esta muestra
+
+-   **Test**: Para probar el modelo entrenado y comparar el rendimiento en entrenamiento y test. En base a los resultados, se puede cambiar de modelo o realizar ajustes sobre él (reentrenar el modelo)
+
+-   **Validación (Validation)**: Para reflejar el comportamiento del modelo en un entorno real con nuevos datos. ¡No se usa para reentrenar!
+
+# Particiones de los datos
+
+![](images/paste-559B4CB0.png){fig-align="center" width="456"}
+
+# Particiones de los datos
+
+-   Construcción de las particiones: Train 60% - Test 20% - Validación 20% (aproximadamente)
+
+-   Los % anteriores dependerán del volumen de los datos y los objetivos del problema
+
+-   *k*-fold cross validation. Se obtienen $k$ valores del error --\> media y desviación
+
+    ![](images/paste-3CEE1DF2.png){fig-align="center" width="306"}
+
+# Particiones de los datos: Muestreo
+
+-   ¿Por qué funcionan bien las particiones?
+
+-   Muestreo aleatorio
+
+-   Muestreo estratificado --\> guiado por la variable objetivo
+
+<!--# Explicar aquí cómo se realiza el muestreo, que sea hace aleatorio simple, tb podría ser estratificado y ya pasar a los código. Justificar con todo esto por qué podemos hacer esa partición y que funcione bien -->
+
+# Bases de datos
+
+-   **Relacionales**. Siguen el modelo entidad-relación, también llamado modelo relacional, en donde cada una de las tablas (o entidades) presenta algún tipo de enlace con otras (relaciones).
+
+    -   SQL: Structured Query Language
+
+-   **No** **relacionales** (no SQL). Representar datos de forma más flexible
+
+# Infraestructuras para datos
+
+-   Bases de datos relacionales y no relaciones
+
+-   Almacenamiento de datos en la nube
+
+-   Almacenamiento en memoria
+
+-   Almacenamiento distribuido
+
+    -   Federated learning
+
+# Calidad de los datos
+
+-   Clave en cualquier proyecto que involucre datos --\> influye directamente en la confiabilidad y el valor de los resultados
+
+-   Precisión
+
+-   Integridad
+
+-   Consistencia
+
+-   Relevancia
+
+-   Actualización
+
+-   Limpieza
+
+-   Documentación
+
+# Ética, privacidad y seguridad en los datos
+
+-   La ética, privacidad y seguridad en los datos son aspectos entrelazados y fundamentales para garantizar que la recopilación, el análisis y el uso de datos se realicen de manera responsable y en beneficio de la sociedad
+
+-   ¿Algún ejemplo de falta de ética?
+
+-   ¿Algún ejemplo de falta de privacidad?
+
+https://www.unesco.org/en/artificial-intelligence/recommendation-ethics/cases
+
+# Referencias
+
+Hastie, T., Tibshirani, R., Friedman, J. H., & Friedman, J. H. (2009). *The elements of statistical learning: data mining, inference, and prediction* (Vol. 2, pp. 1-758). New York: springer.
+
+Saltz, J., Skirpan, M., Fiesler, C., Gorelick, M., Yeh, T., Heckman, R., \... & Beard, N. (2019). Integrating ethics within machine learning courses. *ACM Transactions on Computing Education (TOCE)*, *19*(4), 1-26.
