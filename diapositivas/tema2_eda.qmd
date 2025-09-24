@@ -1,7 +1,8 @@
 ---
 title: "Análisis exploratorio de datos"
 author: "Minería de Datos - Grado en Matemáticas"
-date: "Curso académico 2025-2026"
+institute: "DSLAB"
+date: last-modified
 format:
   beamer:
     theme: "Madrid"
