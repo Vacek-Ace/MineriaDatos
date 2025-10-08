@@ -1,0 +1,870 @@
+---
+title: "Laboratorio 3: Técnicas de Reducción de la Dimensionalidad"
+author: "Minería de Datos - Grado en Matemáticas"
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    number-sections: false
+    code-fold: false
+    theme: cosmo
+    embed-resources: true
+    self-contained: true
+editor: source
+knitr:
+  opts_chunk:
+    warning: false
+    message: false
+---
+
+# Introducción
+
+En este laboratorio trabajaremos con técnicas de reducción de la dimensionalidad, centrándonos en:
+
+- **Selección de variables** (Filter, Wrapper)
+- **Análisis de Componentes Principales (PCA)**
+- **Escalado Multidimensional (MDS)**
+
+## Objetivos del laboratorio
+
+1. Comprender cuándo y por qué aplicar técnicas de reducción de dimensionalidad
+2. Implementar métodos de selección de variables
+3. Aplicar PCA y interpretar sus resultados
+4. Visualizar datos de alta dimensión en 2D/3D
+5. Comparar diferentes técnicas de reducción de dimensionalidad
+
+# Configuración inicial
+
+```{r setup, message=FALSE, warning=FALSE}
+# Librerías necesarias
+library(tidyverse)
+library(corrplot)
+library(FactoMineR)
+library(factoextra)
+library(caret)
+library(MASS)
+
+# Configuración de gráficos
+theme_set(theme_minimal())
+```
+
+# Parte 1: Selección de Variables
+
+## 1.1 Métodos Filter
+
+Los métodos **filter** son independientes del modelo y evalúan la relevancia de las variables usando medidas estadísticas.
+
+### Ejercicio 1.1: Correlación de Pearson
+
+**Objetivo**: Identificar variables altamente correlacionadas en el dataset `mtcars`.
+
+```{r filter-correlation}
+# Cargar datos
+data(mtcars)
+head(mtcars)
+
+# Calcular matriz de correlación
+cor_matrix <- cor(mtcars)
+
+# Visualizar correlaciones
+corrplot(cor_matrix, method = "color", type = "upper",
+         tl.col = "black", tl.srt = 45,
+         addCoef.col = "black", number.cex = 0.7)
+
+# Identificar variables altamente correlacionadas (|r| > 0.8)
+high_cor <- which(abs(cor_matrix) > 0.8 & abs(cor_matrix) < 1, arr.ind = TRUE)
+high_cor_pairs <- unique(t(apply(high_cor, 1, sort)))
+rownames(high_cor_pairs) <- NULL
+colnames(high_cor_pairs) <- c("Var1", "Var2")
+
+print("Variables altamente correlacionadas:")
+for(i in 1:nrow(high_cor_pairs)) {
+  v1 <- high_cor_pairs[i, 1]
+  v2 <- high_cor_pairs[i, 2]
+  cat(sprintf("%s - %s: r = %.3f\n",
+              colnames(mtcars)[v1],
+              colnames(mtcars)[v2],
+              cor_matrix[v1, v2]))
+}
+```
+
+**Pregunta**: ¿Qué variables eliminarías para reducir la multicolinealidad?
+
+### Ejercicio 1.2: Test Chi-cuadrado
+
+**Objetivo**: Seleccionar las mejores variables categóricas usando el test Chi-cuadrado.
+
+```{r filter-chi2}
+# Crear datos categóricos
+set.seed(123)
+iris_discrete <- iris
+iris_discrete$Sepal.Length.cat <- cut(iris$Sepal.Length, breaks = 3,
+                                      labels = c("Bajo", "Medio", "Alto"))
+iris_discrete$Sepal.Width.cat <- cut(iris$Sepal.Width, breaks = 3,
+                                     labels = c("Bajo", "Medio", "Alto"))
+iris_discrete$Petal.Length.cat <- cut(iris$Petal.Length, breaks = 3,
+                                      labels = c("Bajo", "Medio", "Alto"))
+iris_discrete$Petal.Width.cat <- cut(iris$Petal.Width, breaks = 3,
+                                     labels = c("Bajo", "Medio", "Alto"))
+
+# Test Chi-cuadrado para cada variable
+chi_scores <- sapply(iris_discrete[, 6:9], function(x) {
+  chisq.test(table(x, iris_discrete$Species))$statistic
+})
+
+# Ordenar por importancia
+chi_scores_sorted <- sort(chi_scores, decreasing = TRUE)
+print("Importancia de variables (Chi-cuadrado):")
+print(chi_scores_sorted)
+
+# Visualizar
+barplot(chi_scores_sorted, las = 2, col = "steelblue",
+        main = "Importancia de variables (Test Chi-cuadrado)",
+        ylab = "Estadístico Chi-cuadrado")
+```
+
+## 1.2 Métodos Wrapper
+
+Los métodos **wrapper** usan modelos de ML para evaluar subconjuntos de variables.
+
+### Ejercicio 1.3: Forward Selection
+
+```{r wrapper-forward}
+# Datos
+data(mtcars)
+
+# Forward selection usando step()
+# Modelo nulo (sin predictores)
+null_model <- lm(mpg ~ 1, data = mtcars)
+
+# Modelo completo
+full_model <- lm(mpg ~ ., data = mtcars)
+
+# Forward selection
+forward_model <- step(null_model,
+                     scope = list(lower = null_model, upper = full_model),
+                     direction = "forward",
+                     trace = 0)
+
+print("Variables seleccionadas (Forward Selection):")
+print(summary(forward_model)$coefficients)
+
+cat("\nR² del modelo:", summary(forward_model)$r.squared, "\n")
+cat("R² ajustado:", summary(forward_model)$adj.r.squared, "\n")
+```
+
+### Ejercicio 1.4: Backward Elimination
+
+```{r wrapper-backward}
+# Backward elimination
+backward_model <- step(full_model,
+                      direction = "backward",
+                      trace = 0)
+
+print("Variables seleccionadas (Backward Elimination):")
+print(summary(backward_model)$coefficients)
+
+cat("\nR² del modelo:", summary(backward_model)$r.squared, "\n")
+cat("R² ajustado:", summary(backward_model)$adj.r.squared, "\n")
+```
+
+**Pregunta**: ¿Coinciden las variables seleccionadas por forward selection y backward elimination?
+
+# Parte 2: Análisis de Componentes Principales (PCA)
+
+## 2.1 PCA: Fundamentos
+
+### Ejercicio 2.1: PCA paso a paso
+
+**Objetivo**: Calcular PCA manualmente para comprender el proceso matemático completo.
+
+```{r pca-manual}
+# Datos (primeras 4 variables de iris)
+data(iris)
+X <- iris[, 1:4]
+
+cat("=== ANÁLISIS DE COMPONENTES PRINCIPALES: PASO A PASO ===\n\n")
+
+# Paso 0: Exploración inicial
+cat("PASO 0: Datos originales\n")
+cat("Dimensiones:", nrow(X), "observaciones x", ncol(X), "variables\n")
+cat("\nMedias originales:\n")
+print(round(colMeans(X), 3))
+cat("\nDesviaciones típicas originales:\n")
+print(round(apply(X, 2, sd), 3))
+
+# 1. Estandarizar datos (media 0, desviación típica 1)
+cat("\n\nPASO 1: Estandarización de datos\n")
+cat("¿Por qué estandarizar? Porque las variables están en diferentes escalas.\n")
+X_scaled <- scale(X)
+cat("Medias después de estandarizar (deben ser ~0):\n")
+print(round(colMeans(X_scaled), 10))
+cat("Desviaciones típicas después de estandarizar (deben ser 1):\n")
+print(round(apply(X_scaled, 2, sd), 3))
+
+# 2. Calcular matriz de covarianzas
+cat("\n\nPASO 2: Matriz de covarianzas (= matriz de correlaciones si datos estandarizados)\n")
+cov_matrix <- cov(X_scaled)
+print(round(cov_matrix, 3))
+
+cat("\nInterpretación de la matriz de covarianzas:\n")
+cat("- Diagonal: varianzas de cada variable (= 1 si estandarizado)\n")
+cat("- Fuera de diagonal: covarianzas entre pares de variables\n")
+cat("- Valores altos (en valor absoluto) indican fuerte relación lineal\n")
+
+# Identificar la mayor correlación
+cor_vals <- cov_matrix[lower.tri(cov_matrix)]
+max_cor_idx <- which(abs(cov_matrix) == max(abs(cor_vals)), arr.ind = TRUE)[1,]
+cat(sprintf("\nMayor correlación: %s con %s (r = %.3f)\n",
+            colnames(X)[max_cor_idx[1]],
+            colnames(X)[max_cor_idx[2]],
+            cov_matrix[max_cor_idx[1], max_cor_idx[2]]))
+
+# 3. Calcular autovalores y autovectores
+cat("\n\nPASO 3: Descomposición espectral (autovalores y autovectores)\n")
+eigen_decomp <- eigen(cov_matrix)
+eigenvalues <- eigen_decomp$values
+eigenvectors <- eigen_decomp$vectors
+
+cat("\nAutovalores (λ) - Varianza de cada componente principal:\n")
+print(round(eigenvalues, 4))
+
+cat("\n¿Qué representan los autovalores?\n")
+cat("- Cada autovalor λᵢ es la varianza de la componente principal PCᵢ\n")
+cat("- La suma de todos los autovalores = traza de Σ = suma de varianzas originales\n")
+cat(sprintf("- Suma de autovalores: %.4f\n", sum(eigenvalues)))
+cat(sprintf("- Suma de varianzas originales: %.4f\n", sum(diag(cov_matrix))))
+
+cat("\nAutovectores (vectores de carga o loadings):\n")
+colnames(eigenvectors) <- paste0("PC", 1:4)
+rownames(eigenvectors) <- colnames(X)
+print(round(eigenvectors, 4))
+
+cat("\n¿Qué representan los autovectores?\n")
+cat("- Cada columna es un autovector que define una componente principal\n")
+cat("- Los elementos del autovector son los 'pesos' de cada variable original\n")
+cat("- Los autovectores son ortonormales (perpendiculares entre sí, longitud = 1)\n")
+
+# Verificar ortonormalidad
+cat("\nVerificación de ortonormalidad:\n")
+cat("Producto punto PC1·PC2 (debe ser ~0):",
+    round(sum(eigenvectors[,1] * eigenvectors[,2]), 10), "\n")
+cat("Norma de PC1 (debe ser 1):",
+    round(sqrt(sum(eigenvectors[,1]^2)), 10), "\n")
+
+# 4. Calcular componentes principales (scores)
+cat("\n\nPASO 4: Calcular los scores (coordenadas en el nuevo espacio)\n")
+PC_scores <- X_scaled %*% eigenvectors
+colnames(PC_scores) <- paste0("PC", 1:4)
+
+cat("Primeras 5 observaciones en el espacio de componentes principales:\n")
+print(round(head(PC_scores, 5), 3))
+
+cat("\nPropiedades de los scores:\n")
+cat("- Media de cada PC (debe ser ~0):\n")
+print(round(colMeans(PC_scores), 10))
+cat("- Varianza de cada PC (debe ser = autovalores):\n")
+print(round(apply(PC_scores, 2, var), 4))
+cat("- Covarianza entre PCs (debe ser ~0):\n")
+print(round(cov(PC_scores[,1], PC_scores[,2]), 10))
+
+# 5. Varianza explicada
+cat("\n\nPASO 5: Varianza explicada\n")
+var_explicada <- eigenvalues / sum(eigenvalues) * 100
+var_acumulada <- cumsum(var_explicada)
+
+tabla_var <- data.frame(
+  Componente = paste0("PC", 1:4),
+  Autovalor = round(eigenvalues, 4),
+  Varianza_Explicada = paste0(round(var_explicada, 2), "%"),
+  Varianza_Acumulada = paste0(round(var_acumulada, 2), "%")
+)
+print(tabla_var)
+
+cat("\nInterpretación:\n")
+cat(sprintf("- PC1 captura el %.2f%% de la varianza total\n", var_explicada[1]))
+cat(sprintf("- PC1 + PC2 capturan el %.2f%% de la varianza total\n", var_acumulada[2]))
+cat(sprintf("- Para capturar ≥95%% de varianza necesitamos %d componentes\n",
+            which(var_acumulada >= 95)[1]))
+```
+
+### Ejercicio 2.2: PCA con prcomp
+
+```{r pca-prcomp}
+# PCA usando prcomp (más sencillo)
+pca_result <- prcomp(iris[, 1:4], scale. = TRUE)
+
+# Resumen
+summary(pca_result)
+
+# Loadings (contribución de cada variable original a cada PC)
+print("Loadings (rotación):")
+print(pca_result$rotation)
+
+# Visualizar varianza explicada
+fviz_eig(pca_result, addlabels = TRUE, ylim = c(0, 80),
+         main = "Varianza explicada por componente")
+```
+
+**Pregunta**: ¿Cuántas componentes necesitamos para explicar al menos el 90% de la varianza?
+
+### Ejercicio 2.3: Interpretación profunda de componentes
+
+```{r pca-interpretation}
+cat("=== INTERPRETACIÓN DE LAS COMPONENTES PRINCIPALES ===\n\n")
+
+# Análisis detallado de loadings
+loadings <- pca_result$rotation
+cat("ANÁLISIS DE LOADINGS (Vectores de carga):\n")
+cat("Los loadings indican la contribución de cada variable original a cada PC\n\n")
+
+# PC1
+cat("PC1 - Primera Componente Principal:\n")
+cat("Loadings:\n")
+print(round(loadings[, 1], 4))
+cat("\nInterpretación de PC1:\n")
+
+# Identificar variables dominantes en PC1
+abs_loadings_pc1 <- abs(loadings[, 1])
+dominant_pc1 <- names(sort(abs_loadings_pc1, decreasing = TRUE))
+cat(sprintf("- Variables más importantes (en orden): %s\n",
+            paste(dominant_pc1, collapse = " > ")))
+
+# Calcular contribuciones
+contrib_pc1 <- (loadings[, 1]^2 / sum(loadings[, 1]^2)) * 100
+cat("\nContribución de cada variable a PC1 (en %):\n")
+print(round(sort(contrib_pc1, decreasing = TRUE), 2))
+
+# Interpretar signo y magnitud
+loadings_pc1_vec <- loadings[, 1]
+pos_vars_pc1 <- names(loadings_pc1_vec[loadings_pc1_vec > 0])
+neg_vars_pc1 <- names(loadings_pc1_vec[loadings_pc1_vec < 0])
+
+cat(sprintf("\nVariables con carga positiva: %s\n", paste(pos_vars_pc1, collapse = ", ")))
+if(length(neg_vars_pc1) > 0) {
+  cat(sprintf("Variables con carga negativa: %s\n", paste(neg_vars_pc1, collapse = ", ")))
+} else {
+  cat("Variables con carga negativa: ninguna\n")
+}
+
+# Interpretación según los signos
+if(length(neg_vars_pc1) > 0) {
+  cat("\nSignificado: PC1 contrasta variables con carga positiva vs negativa.\n")
+  cat("Valores altos de PC1 → altos en variables positivas, bajos en variables negativas.\n")
+  cat("Valores bajos de PC1 → bajos en variables positivas, altos en variables negativas.\n")
+} else {
+  cat("\nSignificado: Todas las variables tienen carga del mismo signo en PC1.\n")
+  cat("PC1 representa una dimensión común donde todas las variables varían en la misma dirección.\n")
+}
+
+# Interpretación biológica
+cat("\n** INTERPRETACIÓN BIOLÓGICA de PC1 **\n")
+cat("Observando los loadings de PC1:\n")
+cat(sprintf("- Sepal.Width tiene carga negativa (%.4f)\n", loadings["Sepal.Width", 1]))
+cat("- Las otras tres variables tienen cargas positivas\n")
+cat("\nInterpretación:\n")
+cat("- PC1 representa principalmente el 'tamaño general' de la flor (pétalo y largo del sépalo)\n")
+cat("- Sepal.Width actúa en sentido opuesto: flores grandes tienen sépalos relativamente estrechos\n")
+cat("- Esto sugiere un trade-off: las flores invierten en largo de estructuras vs ancho de sépalo\n")
+cat("- Valores altos de PC1: flores con pétalos grandes y sépalos largos pero estrechos\n")
+cat("- Valores bajos de PC1: flores con pétalos pequeños y sépalos cortos pero anchos\n")
+
+# PC2
+cat("\n\nPC2 - Segunda Componente Principal:\n")
+cat("Loadings:\n")
+print(round(loadings[, 2], 4))
+cat("\nInterpretación de PC2:\n")
+
+# Identificar variables dominantes en PC2
+abs_loadings_pc2 <- abs(loadings[, 2])
+dominant_pc2 <- names(sort(abs_loadings_pc2, decreasing = TRUE))
+cat(sprintf("- Variables más importantes (en orden): %s\n",
+            paste(dominant_pc2, collapse = " > ")))
+
+# Contribuciones PC2
+contrib_pc2 <- (loadings[, 2]^2 / sum(loadings[, 2]^2)) * 100
+cat("\nContribución de cada variable a PC2 (en %):\n")
+print(round(sort(contrib_pc2, decreasing = TRUE), 2))
+
+cat("\n** INTERPRETACIÓN BIOLÓGICA de PC2 **\n")
+cat("PC2 contrasta las características del sépalo vs del pétalo:\n")
+cat("- Sepal.Width tiene loading positivo alto\n")
+cat("- Petal.Length y Petal.Width tienen loadings negativos\n")
+cat("- PC2 captura la forma relativa de la flor (ancha en sépalos vs larga en pétalos)\n")
+
+# Gráficos de interpretación
+par(mfrow = c(2, 2))
+
+# 1. Circle of correlations
+fviz_pca_var(pca_result,
+             col.var = "contrib",
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+             repel = TRUE,
+             title = "Círculo de correlaciones")
+
+# 2. Contribuciones a PC1
+fviz_contrib(pca_result, choice = "var", axes = 1, top = 10,
+             title = "Contribución de variables a PC1")
+
+# 3. Contribuciones a PC2
+fviz_contrib(pca_result, choice = "var", axes = 2, top = 10,
+             title = "Contribución de variables a PC2")
+
+# 4. Calidad de representación
+fviz_pca_var(pca_result,
+             col.var = "cos2",
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+             repel = TRUE,
+             title = "Calidad de representación (cos²)")
+
+par(mfrow = c(1, 1))
+
+# Biplot interpretado
+cat("\n\n=== BIPLOT: OBSERVACIONES Y VARIABLES ===\n")
+fviz_pca_biplot(pca_result,
+                col.ind = iris$Species,
+                palette = c("#00AFBB", "#E7B800", "#FC4E07"),
+                addEllipses = TRUE,
+                ellipse.type = "confidence",
+                label = "var",
+                col.var = "black",
+                repel = TRUE,
+                legend.title = "Especies",
+                title = "Biplot PCA - Iris Dataset")
+
+cat("\nCómo interpretar el biplot:\n")
+cat("1. OBSERVACIONES (puntos de colores):\n")
+cat("   - Cada punto es una observación (una flor)\n")
+cat("   - Puntos cercanos son similares en las variables originales\n")
+cat("   - Las elipses muestran intervalos de confianza del 95% por especie\n")
+cat("\n2. VARIABLES (flechas):\n")
+cat("   - La dirección indica cómo contribuye cada variable a las PCs\n")
+cat("   - La longitud indica qué tan bien está representada la variable\n")
+cat("   - Flechas en la misma dirección → variables correlacionadas positivamente\n")
+cat("   - Flechas opuestas → variables correlacionadas negativamente\n")
+cat("   - Flechas perpendiculares → variables incorreladas\n")
+cat("\n3. INTERPRETACIÓN CONJUNTA:\n")
+cat("   - Observaciones en dirección de una flecha → valores altos en esa variable\n")
+cat("   - Setosa: sépalos anchos, pétalos pequeños (PC2 alto, PC1 bajo)\n")
+cat("   - Virginica: flores grandes en general (PC1 alto)\n")
+cat("   - Versicolor: características intermedias\n")
+
+# Análisis de separación de especies
+cat("\n\n=== CAPACIDAD DE SEPARACIÓN DE ESPECIES ===\n")
+pc_scores <- as.data.frame(pca_result$x)
+pc_scores$Species <- iris$Species
+
+# Calcular distancias entre centroides
+centroides <- aggregate(. ~ Species, data = pc_scores[, c("PC1", "PC2", "Species")],
+                        FUN = mean)
+cat("Centroides de cada especie en el espacio PC1-PC2:\n")
+centroides_print <- centroides
+centroides_print[, -1] <- round(centroides_print[, -1], 3)
+print(centroides_print)
+
+# Distancias euclídeas entre centroides
+dist_centroides <- dist(centroides[, -1])
+cat("\nDistancias entre centroides de especies:\n")
+print(round(dist_centroides, 3))
+
+cat("\nConclusión:\n")
+cat("- Setosa está muy separada de las otras dos especies\n")
+cat("- Versicolor y Virginica están más cercanas pero distinguibles\n")
+cat("- PC1 y PC2 juntas permiten una buena separación visual de las 3 especies\n")
+```
+
+### Ejercicio 2.4: ¿Cuántas componentes retener?
+
+```{r pca-ncomps}
+# Criterio 1: Varianza acumulada > 90%
+var_cumsum <- cumsum(pca_result$sdev^2 / sum(pca_result$sdev^2))
+n_comp_90 <- which(var_cumsum >= 0.90)[1]
+cat("Componentes necesarias para 90% varianza:", n_comp_90, "\n")
+
+# Criterio 2: Scree plot (criterio del codo)
+# Buscar el "codo" en el gráfico
+plot(pca_result$sdev^2, type = "b", pch = 19,
+     xlab = "Componente", ylab = "Autovalor",
+     main = "Scree Plot")
+abline(h = 1, col = "red", lty = 2)
+
+# Criterio 3: Kaiser (autovalor > 1, solo si datos estandarizados)
+n_comp_kaiser <- sum(pca_result$sdev^2 > 1)
+cat("Componentes según criterio de Kaiser (λ > 1):", n_comp_kaiser, "\n")
+```
+
+## 2.5 PCA: Caso práctico completo
+
+### Ejercicio 2.5: Dataset Wine
+
+```{r pca-wine}
+cat("=== PCA EN DATASET WINE: ANÁLISIS COMPLETO ===\n\n")
+
+# Cargar datos de vinos
+wine <- read.csv("https://archive.ics.uci.edu/ml/machine-learning-databases/wine/wine.data",
+                 header = FALSE)
+colnames(wine) <- c("Class", "Alcohol", "MalicAcid", "Ash", "Alcalinity",
+                    "Magnesium", "TotalPhenols", "Flavanoids",
+                    "NonflavanoidPhenols", "Proanthocyanins",
+                    "ColorIntensity", "Hue", "OD280_OD315", "Proline")
+
+cat("PASO 1: Exploración de datos\n")
+cat("Dimensiones:", nrow(wine), "vinos x", ncol(wine)-1, "variables químicas\n")
+cat("Clases:", length(unique(wine$Class)), "tipos de vino\n")
+table_class <- table(wine$Class)
+cat("Distribución de clases:\n")
+print(table_class)
+
+# Separar clase y predictores
+wine_class <- factor(wine$Class, levels = c(1, 2, 3), labels = c("Clase 1", "Clase 2", "Clase 3"))
+wine_features <- wine[, -1]
+
+cat("\n\nPASO 2: Estadísticas descriptivas\n")
+cat("Observa las diferentes escalas de las variables:\n")
+stats_wine <- data.frame(
+  Variable = colnames(wine_features),
+  Media = round(colMeans(wine_features), 2),
+  SD = round(apply(wine_features, 2, sd), 2),
+  Min = round(apply(wine_features, 2, min), 2),
+  Max = round(apply(wine_features, 2, max), 2),
+  Rango = round(apply(wine_features, 2, max) - apply(wine_features, 2, min), 2)
+)
+print(stats_wine)
+
+cat("\nObservación importante:\n")
+cat("- Las variables tienen escalas MUY diferentes (ej: Proline 278-1680 vs Ash 1.4-3.2)\n")
+cat("- Por eso es CRÍTICO estandarizar antes de PCA\n")
+
+# PCA
+cat("\n\nPASO 3: Aplicar PCA con estandarización\n")
+pca_wine <- prcomp(wine_features, scale. = TRUE)
+
+# Análisis de varianza explicada
+var_exp <- summary(pca_wine)$importance
+cat("\nVarianza explicada por las primeras componentes:\n")
+print(round(var_exp[, 1:5], 4))
+
+cat("\nInterpretación clave:\n")
+cat(sprintf("- PC1 explica %.2f%% de la varianza\n", var_exp[2,1]*100))
+cat(sprintf("- PC1 + PC2 explican %.2f%% de la varianza\n", var_exp[3,2]*100))
+cat(sprintf("- PC1 + PC2 + PC3 explican %.2f%% de la varianza\n", var_exp[3,3]*100))
+cat(sprintf("- Se necesitan %d componentes para explicar ≥90%% de varianza\n",
+            which(var_exp[3,] >= 0.90)[1]))
+
+# Análisis detallado de loadings
+cat("\n\nPASO 4: Análisis de loadings (interpretación de componentes)\n")
+loadings_wine <- pca_wine$rotation
+
+cat("\n--- PC1: Primera Componente Principal ---\n")
+cat("Loadings de PC1:\n")
+loadings_pc1_sorted <- sort(pca_wine$rotation[, 1], decreasing = TRUE)
+print(round(loadings_pc1_sorted, 4))
+
+cat("\nVariables con mayor contribución a PC1 (en valor absoluto):\n")
+contrib_pc1 <- sort(abs(pca_wine$rotation[, 1]), decreasing = TRUE)
+print(round(head(contrib_pc1, 5), 4))
+
+cat("\nInterpretación de PC1:\n")
+cat("- Flavanoids, TotalPhenols, OD280_OD315, Hue, Proanthocyanins son dominantes\n")
+cat("- Todas con carga positiva → PC1 representa la 'calidad fenólica' del vino\n")
+cat("- Vinos con PC1 alto: ricos en compuestos fenólicos y flavonoides\n")
+cat("- Vinos con PC1 bajo: pobres en estos compuestos\n")
+
+cat("\n--- PC2: Segunda Componente Principal ---\n")
+cat("Loadings de PC2:\n")
+loadings_pc2_sorted <- sort(pca_wine$rotation[, 2], decreasing = TRUE)
+print(round(loadings_pc2_sorted, 4))
+
+cat("\nInterpretación de PC2:\n")
+cat("- Alcalinity, Ash tienen cargas positivas altas\n")
+cat("- MalicAcid, Hue tienen cargas negativas\n")
+cat("- PC2 contrasta el contenido mineral vs acidez del vino\n")
+
+# Visualizaciones múltiples
+cat("\n\nPASO 5: Visualizaciones\n")
+
+# Layout de gráficos
+par(mfrow = c(2, 2), mar = c(4, 4, 3, 1))
+
+# 1. Scree plot
+plot(pca_wine$sdev^2, type = "b", pch = 19, col = "steelblue",
+     xlab = "Componente Principal", ylab = "Autovalor (Varianza)",
+     main = "Scree Plot")
+abline(h = 1, col = "red", lty = 2)
+text(1, pca_wine$sdev[1]^2 + 0.2, sprintf("λ1 = %.2f", pca_wine$sdev[1]^2))
+
+# 2. Varianza acumulada
+var_acum <- cumsum(pca_wine$sdev^2 / sum(pca_wine$sdev^2))
+plot(var_acum, type = "b", pch = 19, col = "darkgreen",
+     xlab = "Número de Componentes", ylab = "Varianza Acumulada",
+     main = "Varianza Acumulada", ylim = c(0, 1))
+abline(h = 0.9, col = "red", lty = 2)
+abline(h = 0.95, col = "orange", lty = 2)
+legend("bottomright", c("90%", "95%"), col = c("red", "orange"),
+       lty = 2, cex = 0.7)
+
+# 3. Biplot de variables
+biplot(pca_wine, scale = 0, cex = 0.6, col = c("gray50", "red"),
+       main = "Biplot (Variables)")
+
+# 4. Contribución a PC1
+contrib_pc1_pct <- (pca_wine$rotation[, 1]^2 / sum(pca_wine$rotation[, 1]^2)) * 100
+barplot(sort(contrib_pc1_pct, decreasing = TRUE), las = 2, col = "steelblue",
+        main = "Contribución a PC1 (%)", cex.names = 0.7, ylab = "%")
+
+par(mfrow = c(1, 1))
+
+# Visualización 2D con ggplot mejorada
+cat("\nGráfico de dispersión PC1 vs PC2:\n")
+fviz_pca_ind(pca_wine,
+             col.ind = wine_class,
+             palette = c("#E69F00", "#56B4E9", "#009E73"),
+             addEllipses = TRUE,
+             ellipse.type = "confidence",
+             ellipse.level = 0.95,
+             legend.title = "Tipo de Vino",
+             repel = TRUE,
+             pointsize = 2,
+             title = "PCA - Dataset Wine (PC1 vs PC2)")
+
+# Biplot con variables
+fviz_pca_biplot(pca_wine,
+                col.ind = wine_class,
+                palette = c("#E69F00", "#56B4E9", "#009E73"),
+                addEllipses = TRUE,
+                label = "var",
+                col.var = "black",
+                repel = TRUE,
+                legend.title = "Tipo de Vino",
+                title = "Biplot: Vinos y Variables Químicas")
+
+# Análisis de separación entre clases
+cat("\n\nPASO 6: Evaluación de separación entre clases de vino\n")
+pc_scores_wine <- as.data.frame(pca_wine$x[, 1:3])
+pc_scores_wine$Class <- wine_class
+
+# Centroides
+centroides_wine <- aggregate(. ~ Class, data = pc_scores_wine, FUN = mean)
+cat("Centroides de cada clase en el espacio PC1-PC2-PC3:\n")
+centroides_wine_print <- centroides_wine
+centroides_wine_print[, -1] <- round(centroides_wine_print[, -1], 3)
+print(centroides_wine_print)
+
+# Distancias entre centroides
+dist_cent_wine <- as.matrix(dist(centroides_wine[, -1]))
+rownames(dist_cent_wine) <- paste("Clase", 1:3)
+colnames(dist_cent_wine) <- paste("Clase", 1:3)
+cat("\nDistancias euclídeas entre centroides (en espacio PC1-PC2-PC3):\n")
+print(round(dist_cent_wine, 3))
+
+# Test MANOVA para ver si las clases difieren significativamente
+cat("\nTest MANOVA (¿difieren las clases en el espacio PCA?):\n")
+manova_result <- summary(manova(cbind(PC1, PC2, PC3) ~ Class,
+                                data = pc_scores_wine))
+print(manova_result)
+
+cat("\n** CONCLUSIONES del PCA en Wine **\n")
+cat("1. Las primeras 2 componentes capturan el", round(var_exp[3,2]*100, 1), "% de varianza\n")
+cat("2. PC1 representa principalmente la calidad fenólica (flavonoides y polifenoles)\n")
+cat("3. PC2 contrasta contenido mineral vs acidez\n")
+cat("4. Las 3 clases de vino están BIEN SEPARADAS en el espacio PC1-PC2\n")
+cat("5. Clase 1 se distingue claramente por PC1 alto (ricos en fenoles)\n")
+cat("6. Clases 2 y 3 se diferencian mejor usando PC2\n")
+cat("7. El PCA permite visualizar en 2D datos de 13 dimensiones manteniendo interpretabilidad\n")
+
+# Visualización 3D si plotly disponible
+if(require(plotly, quietly = TRUE)) {
+  cat("\nGráfico 3D interactivo disponible (PC1, PC2, PC3):\n")
+  # Convertir Class a character para evitar problemas con plotly
+  pc_scores_wine$Class_char <- as.character(pc_scores_wine$Class)
+  plot_3d <- plot_ly(pc_scores_wine, x = ~PC1, y = ~PC2, z = ~PC3,
+                     color = ~Class_char,
+                     colors = c("#E69F00", "#56B4E9", "#009E73"),
+                     marker = list(size = 4)) %>%
+    add_markers() %>%
+    layout(title = "PCA 3D - Dataset Wine",
+           scene = list(
+             xaxis = list(title = sprintf('PC1 (%.1f%%)', var_exp[2,1]*100)),
+             yaxis = list(title = sprintf('PC2 (%.1f%%)', var_exp[2,2]*100)),
+             zaxis = list(title = sprintf('PC3 (%.1f%%)', var_exp[2,3]*100))
+           ))
+  print(plot_3d)
+}
+```
+
+**Preguntas de reflexión**:
+
+1. ¿Por qué es tan importante estandarizar en este dataset en particular?
+2. ¿Se pueden separar bien las 3 clases de vino usando solo 2 componentes principales?
+3. ¿Qué representa químicamente la PC1? ¿Y la PC2?
+4. ¿Cuántas componentes retendrías para un análisis posterior? Justifica.
+
+# Parte 3: Escalado Multidimensional (MDS)
+
+## 3.1 MDS Clásico
+
+**Objetivo**: Visualizar similitudes/distancias entre observaciones.
+
+### Ejercicio 3.1: MDS con distancias euclídeas
+
+```{r mds-euclidean}
+# Calcular matriz de distancias
+dist_matrix <- dist(iris[, 1:4])
+
+# MDS clásico (métrico)
+mds_result <- cmdscale(dist_matrix, k = 2, eig = TRUE)
+
+# Coordenadas MDS
+mds_coords <- as.data.frame(mds_result$points)
+colnames(mds_coords) <- c("Dim1", "Dim2")
+mds_coords$Species <- iris$Species
+
+# Visualizar
+ggplot(mds_coords, aes(x = Dim1, y = Dim2, color = Species)) +
+  geom_point(size = 3, alpha = 0.7) +
+  stat_ellipse() +
+  labs(title = "MDS Clásico - Iris Dataset",
+       x = "Dimensión 1", y = "Dimensión 2") +
+  theme_minimal()
+
+# Bondad de ajuste
+cat("Bondad de ajuste (GOF):",
+    round(mds_result$GOF[1], 4), "\n")
+```
+
+### Ejercicio 3.2: Comparación PCA vs MDS
+
+```{r pca-vs-mds}
+# PCA
+pca_iris <- prcomp(iris[, 1:4], scale. = TRUE)
+pca_coords <- as.data.frame(pca_iris$x[, 1:2])
+pca_coords$Species <- iris$Species
+pca_coords$Method <- "PCA"
+colnames(pca_coords)[1:2] <- c("Dim1", "Dim2")
+
+# MDS
+mds_coords$Method <- "MDS"
+
+# Combinar
+combined <- rbind(pca_coords, mds_coords)
+
+# Visualizar ambos
+ggplot(combined, aes(x = Dim1, y = Dim2, color = Species)) +
+  geom_point(size = 2, alpha = 0.6) +
+  facet_wrap(~Method, scales = "free") +
+  stat_ellipse() +
+  labs(title = "Comparación: PCA vs MDS") +
+  theme_minimal()
+```
+
+**Pregunta**: ¿Qué diferencias observas entre PCA y MDS?
+
+## 3.2 MDS No-métrico
+
+### Ejercicio 3.3: MDS con distancias ordinales
+
+```{r mds-nonmetric}
+# MDS no-métrico
+library(MASS)
+
+# Añadir pequeño ruido para evitar distancias exactamente cero
+set.seed(123)
+iris_jitter <- iris[, 1:4] + matrix(rnorm(nrow(iris) * 4, 0, 0.001),
+                                     nrow = nrow(iris))
+dist_matrix_jitter <- dist(iris_jitter)
+
+# Aplicar MDS no-métrico
+mds_nonmetric <- isoMDS(dist_matrix_jitter, k = 2)
+
+# Coordenadas
+mds_nm_coords <- as.data.frame(mds_nonmetric$points)
+colnames(mds_nm_coords) <- c("Dim1", "Dim2")
+mds_nm_coords$Species <- iris$Species
+
+# Visualizar
+ggplot(mds_nm_coords, aes(x = Dim1, y = Dim2, color = Species)) +
+  geom_point(size = 3, alpha = 0.7) +
+  stat_ellipse() +
+  labs(title = "MDS No-métrico - Iris Dataset",
+       subtitle = paste("Stress =", round(mds_nonmetric$stress, 2)),
+       x = "Dimensión 1", y = "Dimensión 2") +
+  theme_minimal()
+```
+
+**Interpretación del Stress**:
+
+- Stress < 0.05: excelente
+- Stress < 0.10: bueno
+- Stress < 0.20: aceptable
+- Stress > 0.20: pobre
+
+# Parte 4: Ejercicios Integradores
+
+## Ejercicio Integrador 1: Reducción de dimensionalidad completa
+
+**Dataset**: USArrests (estadísticas de arrestos en EE.UU.)
+
+```{r integrador1}
+data(USArrests)
+head(USArrests)
+
+# 1. Análisis exploratorio
+summary(USArrests)
+
+# Correlaciones
+corrplot(cor(USArrests), method = "color", type = "upper",
+         addCoef.col = "black")
+
+# 2. PCA
+pca_arrests <- prcomp(USArrests, scale. = TRUE)
+summary(pca_arrests)
+
+fviz_pca_biplot(pca_arrests,
+                repel = TRUE,
+                col.var = "contrib",
+                gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+                title = "PCA - US Arrests")
+
+# 3. Clustering sobre componentes principales
+set.seed(123)
+km_pca <- kmeans(pca_arrests$x[, 1:2], centers = 4)
+
+# Visualizar clusters
+fviz_cluster(km_pca, data = pca_arrests$x[, 1:2],
+             palette = "jco",
+             ggtheme = theme_minimal(),
+             main = "Clustering sobre componentes principales")
+
+# 4. MDS para comparar
+dist_arrests <- dist(scale(USArrests))
+mds_arrests <- cmdscale(dist_arrests, k = 2)
+
+plot(mds_arrests, type = "n", main = "MDS - US Arrests")
+text(mds_arrests, labels = rownames(USArrests), cex = 0.7)
+```
+
+# Recursos Adicionales
+
+## Librerías útiles en R
+
+- `caret`: selección de variables y ML
+- `FactoMineR`: PCA, MDS
+- `factoextra`: visualización de análisis multivariantes
+- `corrplot`: matrices de correlación
+- `MASS`: funciones estadísticas avanzadas
+
+## Lecturas recomendadas
+
+1. Peña, D. (2013). *Análisis de datos multivariantes*. McGraw-Hill España.
+2. James et al. (2013). *An Introduction to Statistical Learning*.
+3. Hastie et al. (2009). *The Elements of Statistical Learning*.
+
+## Datasets para practicar
+
+- UCI ML Repository: https://archive.ics.uci.edu/ml/
+- Kaggle Datasets: https://www.kaggle.com/datasets
+- R datasets: `data()` para ver todos los disponibles
+
+---
+
+**Fin del Laboratorio 3**

@@ -238,7 +238,7 @@ $$
 
 -   Generalización del concepto de PCA
 
--   Los datos son una matriz de distancias o de similaridades --\> no se tienen observaciones y variables, se tienen distancias (o similaridades) entre ellos (Ej: comparación de productos para marketing)
+-   Los datos son una matriz de distancias o de similitudes --\> no se tienen observaciones y variables, se tienen distancias (o similitudes) entre ellos (Ej: comparación de productos para marketing)
 
 -   Traduce información de distancias entre $n$ elementos en una representación de $n$ puntos en el espacio más pequeño (2 o 3 dimensiones es lo ideal).
 
