@@ -1,0 +1,1502 @@
+---
+title: "Laboratorio 4.2: Clustering y Agrupamiento"
+author: "Minería de Datos - Grado en Matemáticas"
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    number-sections: false
+    code-fold: false
+    theme: cosmo
+    embed-resources: true
+    self-contained: true
+editor: source
+knitr:
+  opts_chunk:
+    warning: false
+    message: false
+---
+
+# Introducción
+
+En este laboratorio trabajaremos con **algoritmos de clustering**, tanto métodos de partición como métodos jerárquicos. Nos centraremos en:
+
+- **Clustering no jerárquico**: k-medias y k-medoides
+- **Clustering jerárquico**: Aglomerativo y Divisivo
+- **Selección del número óptimo de clusters**
+- **Evaluación de la calidad del clustering**
+- **Mapas auto-organizados de Kohonen (SOM)**
+
+## Objetivos del laboratorio
+
+1. Implementar y comparar diferentes algoritmos de clustering
+2. Aprender a seleccionar el número óptimo de clusters (k)
+3. Interpretar dendrogramas y resultados de clustering jerárquico
+4. Evaluar la calidad de los clusters obtenidos
+5. Aplicar clustering a casos de uso reales
+
+# Configuración inicial
+
+```{r setup, message=FALSE, warning=FALSE}
+# Librerías necesarias
+library(tidyverse)
+library(cluster)
+library(factoextra)
+library(dendextend)
+library(NbClust)
+library(kohonen)
+library(pheatmap)
+library(gridExtra)
+library(mclust)
+
+# Configuración de gráficos
+theme_set(theme_minimal())
+set.seed(123)
+```
+
+# Parte 1: Clustering No Jerárquico
+
+## 1.1 K-Medias: Fundamentos
+
+### Ejercicio 1.1: K-medias paso a paso
+
+**Objetivo**: Implementar k-medias manualmente para entender el algoritmo.
+
+```{r kmeans-manual}
+cat("=== ALGORITMO K-MEDIAS PASO A PASO ===\n\n")
+
+# Crear datos simples en 2D
+set.seed(42)
+datos <- data.frame(
+  x = c(1, 1.5, 2, 8, 8.5, 9, 1.2, 1.8, 8.2, 9.5),
+  y = c(1, 1.2, 1.5, 8, 8.2, 9, 1.3, 2, 8.5, 9.2)
+)
+
+cat("PASO 0: Datos originales\n")
+print(datos)
+
+# Visualizar datos originales
+plot(datos$x, datos$y, pch = 19, cex = 2,
+     main = "Datos originales",
+     xlab = "x", ylab = "y", xlim = c(0, 10), ylim = c(0, 10))
+grid()
+
+# Parámetros
+K <- 2
+max_iter <- 10
+
+# PASO 1: Inicialización - seleccionar K centroides aleatorios
+cat("\n\nPASO 1: Inicialización\n")
+cat("Seleccionar K =", K, "centroides iniciales aleatorios\n\n")
+
+indices_iniciales <- sample(1:nrow(datos), K)
+centroides <- datos[indices_iniciales, ]
+rownames(centroides) <- paste0("C", 1:K)
+cat("Centroides iniciales:\n")
+print(centroides)
+
+# Función para asignar cada punto al centroide más cercano
+asignar_clusters <- function(datos, centroides) {
+  distancias <- matrix(0, nrow = nrow(datos), ncol = nrow(centroides))
+  for(i in 1:nrow(centroides)) {
+    distancias[, i] <- sqrt((datos$x - centroides$x[i])^2 +
+                            (datos$y - centroides$y[i])^2)
+  }
+  apply(distancias, 1, which.min)
+}
+
+# Función para actualizar centroides
+actualizar_centroides <- function(datos, clusters) {
+  K <- max(clusters)
+  nuevos_centroides <- data.frame(x = numeric(K), y = numeric(K))
+  for(k in 1:K) {
+    puntos_cluster <- datos[clusters == k, ]
+    nuevos_centroides[k, ] <- colMeans(puntos_cluster)
+  }
+  nuevos_centroides
+}
+
+# Iteraciones
+convergencia <- FALSE
+iter <- 1
+
+while(!convergencia && iter <= max_iter) {
+  cat("\n--- ITERACIÓN", iter, "---\n")
+
+  # PASO 2: Asignar cada punto al centroide más cercano
+  clusters <- asignar_clusters(datos, centroides)
+  cat("Asignaciones:", clusters, "\n")
+
+  # Visualizar
+  par(mfrow = c(1, 1))
+  plot(datos$x, datos$y, col = clusters + 1, pch = 19, cex = 2,
+       main = paste("Iteración", iter, "- Asignación de clusters"),
+       xlab = "x", ylab = "y", xlim = c(0, 10), ylim = c(0, 10))
+  points(centroides$x, centroides$y, col = 2:(K+1), pch = 4, cex = 3, lwd = 3)
+  legend("topright", legend = c("Cluster 1", "Cluster 2", "Centroides"),
+         col = c(2, 3, 1), pch = c(19, 19, 4))
+  grid()
+
+  # PASO 3: Actualizar centroides
+  nuevos_centroides <- actualizar_centroides(datos, clusters)
+  cat("Nuevos centroides:\n")
+  print(nuevos_centroides)
+
+  # PASO 4: Verificar convergencia
+  if(all(abs(centroides - nuevos_centroides) < 1e-6)) {
+    cat("\n¡Convergencia alcanzada!\n")
+    convergencia <- TRUE
+  } else {
+    centroides <- nuevos_centroides
+    iter <- iter + 1
+  }
+}
+
+cat("\n\n=== RESULTADO FINAL ===\n")
+cat("Número de iteraciones:", iter, "\n")
+cat("Centroides finales:\n")
+print(centroides)
+cat("\nAsignación final de clusters:\n")
+datos_resultado <- cbind(datos, cluster = clusters)
+print(datos_resultado)
+
+# Calcular varianza intracluster (Within-cluster sum of squares)
+wcss <- sum(sapply(1:K, function(k) {
+  puntos <- datos[clusters == k, ]
+  sum((puntos$x - centroides$x[k])^2 + (puntos$y - centroides$y[k])^2)
+}))
+cat("\nVarianza intracluster (WCSS):", round(wcss, 4), "\n")
+```
+
+**Pregunta 1**: ¿Por qué es importante el paso de inicialización en k-medias?
+
+### Ejercicio 1.2: K-medias con kmeans()
+
+```{r kmeans-funcion}
+# Usar dataset iris
+data(iris)
+X <- iris[, 1:4]
+X_scaled <- scale(X)
+
+# Aplicar k-medias con K=3
+set.seed(123)
+kmeans_result <- kmeans(X_scaled, centers = 3, nstart = 25)
+
+cat("=== RESULTADOS DE K-MEDIAS (K=3) ===\n\n")
+
+cat("Tamaño de cada cluster:\n")
+print(kmeans_result$size)
+
+cat("\nCentroides de los clusters (en escala estandarizada):\n")
+print(round(kmeans_result$centers, 3))
+
+cat("\nVarianza intracluster (within-cluster SS):\n")
+print(kmeans_result$withinss)
+cat("Total within-cluster SS:", kmeans_result$tot.withinss, "\n")
+cat("Between-cluster SS:", kmeans_result$betweenss, "\n")
+
+# Proporción de varianza explicada
+prop_var_explicada <- kmeans_result$betweenss / kmeans_result$totss * 100
+cat(sprintf("\nProporción de varianza explicada: %.2f%%\n", prop_var_explicada))
+
+# Visualizar clusters
+fviz_cluster(kmeans_result, data = X_scaled,
+             palette = c("#00AFBB", "#E7B800", "#FC4E07"),
+             ellipse.type = "convex",
+             star.plot = TRUE,
+             repel = TRUE,
+             ggtheme = theme_minimal(),
+             main = "K-medias: K=3 (Iris dataset)")
+
+# Comparar con etiquetas reales
+tabla_comparacion <- table(Cluster = kmeans_result$cluster, Especie = iris$Species)
+cat("\n=== COMPARACIÓN CON ESPECIES REALES ===\n")
+print(tabla_comparacion)
+
+cat("\nInterpretación:\n")
+cat("- Cluster 1 corresponde principalmente a:", names(which.max(tabla_comparacion[1, ])), "\n")
+cat("- Cluster 2 corresponde principalmente a:", names(which.max(tabla_comparacion[2, ])), "\n")
+cat("- Cluster 3 corresponde principalmente a:", names(which.max(tabla_comparacion[3, ])), "\n")
+```
+
+### Ejercicio 1.3: Efecto de la inicialización
+
+```{r kmeans-inicializacion}
+cat("=== SENSIBILIDAD A LA INICIALIZACIÓN ===\n\n")
+
+# Ejecutar k-medias 10 veces con diferentes inicializaciones
+resultados <- list()
+wcss_values <- numeric(10)
+
+for(i in 1:10) {
+  set.seed(i)
+  km <- kmeans(X_scaled, centers = 3, nstart = 1)
+  resultados[[i]] <- km
+  wcss_values[i] <- km$tot.withinss
+}
+
+cat("WCSS para 10 inicializaciones diferentes:\n")
+wcss_df <- data.frame(
+  Inicialización = 1:10,
+  WCSS = round(wcss_values, 4),
+  Es_óptimo = ifelse(wcss_values == min(wcss_values), "SÍ", "")
+)
+print(wcss_df)
+
+cat(sprintf("\nWCSS mínimo: %.4f\n", min(wcss_values)))
+cat(sprintf("WCSS máximo: %.4f\n", max(wcss_values)))
+cat(sprintf("Diferencia: %.4f (%.2f%%)\n",
+            max(wcss_values) - min(wcss_values),
+            (max(wcss_values) - min(wcss_values)) / min(wcss_values) * 100))
+
+# Visualizar variabilidad
+barplot(wcss_values, names.arg = 1:10, col = "steelblue",
+        main = "Variabilidad del WCSS según inicialización",
+        xlab = "Inicialización", ylab = "WCSS")
+abline(h = min(wcss_values), col = "red", lty = 2, lwd = 2)
+
+cat("\n=== SOLUCIÓN: Usar nstart ===\n")
+cat("El parámetro 'nstart' ejecuta el algoritmo múltiples veces\n")
+cat("y devuelve la mejor solución (menor WCSS)\n\n")
+
+# Comparar nstart=1 vs nstart=25
+set.seed(123)
+km_nstart1 <- kmeans(X_scaled, centers = 3, nstart = 1)
+km_nstart25 <- kmeans(X_scaled, centers = 3, nstart = 25)
+
+cat("WCSS con nstart=1:", km_nstart1$tot.withinss, "\n")
+cat("WCSS con nstart=25:", km_nstart25$tot.withinss, "\n")
+cat("\n¡Siempre usa nstart >= 20-25 para evitar mínimos locales!\n")
+```
+
+**Pregunta 2**: ¿Qué valor recomendarías para el parámetro nstart?
+
+## 1.2 K-Medoides (PAM)
+
+### Ejercicio 1.4: K-medoides con PAM
+
+**Objetivo**: Comparar k-medias con k-medoides (más robusto a outliers).
+
+```{r kmedoids-pam}
+cat("=== K-MEDOIDES (PAM - Partitioning Around Medoids) ===\n\n")
+
+# Aplicar PAM
+pam_result <- pam(X_scaled, k = 3)
+
+cat("Tamaño de cada cluster:\n")
+print(pam_result$clusinfo)
+
+cat("\n\nMedoides (índices de observaciones):\n")
+print(pam_result$medoids)
+
+cat("\nMedoides corresponden a especies:\n")
+for(i in 1:3) {
+  idx <- pam_result$id.med[i]
+  cat(sprintf("Cluster %d: Observación %d (%s)\n",
+              i, idx, iris$Species[idx]))
+}
+
+# Visualizar
+fviz_cluster(pam_result, data = X_scaled,
+             palette = c("#00AFBB", "#E7B800", "#FC4E07"),
+             ellipse.type = "convex",
+             repel = TRUE,
+             ggtheme = theme_minimal(),
+             main = "K-medoides (PAM): K=3")
+
+# Silhouette plot
+fviz_silhouette(pam_result, palette = c("#00AFBB", "#E7B800", "#FC4E07"),
+                ggtheme = theme_minimal())
+
+cat("\n\nSilhouette promedio:", round(pam_result$silinfo$avg.width, 4), "\n")
+cat("\nInterpretación del coeficiente Silhouette:\n")
+cat("- Valores cercanos a 1: excelente asignación\n")
+cat("- Valores cercanos a 0: entre dos clusters\n")
+cat("- Valores negativos: probablemente en el cluster incorrecto\n")
+```
+
+### Ejercicio 1.5: Robustez a outliers - K-medias vs K-medoides
+
+```{r robustez-outliers}
+cat("=== ROBUSTEZ A OUTLIERS ===\n\n")
+
+# Crear datos con outliers
+set.seed(123)
+datos_normales <- rbind(
+  matrix(rnorm(100, mean = 0, sd = 1), ncol = 2),
+  matrix(rnorm(100, mean = 5, sd = 1), ncol = 2)
+)
+
+# Agregar 5 outliers extremos
+outliers <- matrix(c(10, 10, 10, -5, -5, 10, -5, -5, 12, 0), ncol = 2)
+datos_con_outliers <- rbind(datos_normales, outliers)
+datos_con_outliers <- as.data.frame(datos_con_outliers)
+colnames(datos_con_outliers) <- c("x", "y")
+
+cat("Total observaciones:", nrow(datos_con_outliers), "\n")
+cat("Outliers:", nrow(outliers), "\n\n")
+
+# K-medias
+km <- kmeans(datos_con_outliers, centers = 2, nstart = 25)
+
+# K-medoides
+pam_res <- pam(datos_con_outliers, k = 2)
+
+# Visualizar comparación
+par(mfrow = c(1, 2))
+
+# K-medias
+plot(datos_con_outliers$x, datos_con_outliers$y,
+     col = km$cluster + 1, pch = 19,
+     main = "K-medias (sensible a outliers)",
+     xlab = "x", ylab = "y")
+points(km$centers[, 1], km$centers[, 2],
+       col = 2:3, pch = 4, cex = 3, lwd = 3)
+points(outliers[, 1], outliers[, 2], pch = 1, cex = 3, lwd = 2)
+legend("topright", c("Centroides", "Outliers"), pch = c(4, 1), lwd = c(3, 2))
+
+# K-medoides
+plot(datos_con_outliers$x, datos_con_outliers$y,
+     col = pam_res$cluster + 1, pch = 19,
+     main = "K-medoides (robusto a outliers)",
+     xlab = "x", ylab = "y")
+points(datos_con_outliers[pam_res$medoids, 1],
+       datos_con_outliers[pam_res$medoids, 2],
+       col = 2:3, pch = 4, cex = 3, lwd = 3)
+points(outliers[, 1], outliers[, 2], pch = 1, cex = 3, lwd = 2)
+legend("topright", c("Medoides", "Outliers"), pch = c(4, 1), lwd = c(3, 2))
+
+par(mfrow = c(1, 1))
+
+cat("=== COMPARACIÓN DE RESULTADOS ===\n")
+cat("K-medias - WCSS:", km$tot.withinss, "\n")
+cat("K-medoides - Dissimilarity:", pam_res$objective, "\n\n")
+cat("Observación: Los medoides (puntos reales del dataset) son más\n")
+cat("robustos que las medias cuando hay outliers presentes.\n")
+```
+
+**Pregunta 3**: ¿En qué situaciones preferirías usar k-medoides en lugar de k-medias?
+
+## 1.3 Selección del Número Óptimo de Clusters
+
+### Ejercicio 1.6: Método del Codo (Elbow)
+
+```{r elbow-method}
+cat("=== MÉTODO DEL CODO (ELBOW METHOD) ===\n\n")
+
+# Calcular WCSS para diferentes valores de K
+k_values <- 1:10
+wcss_values <- numeric(length(k_values))
+
+for(k in k_values) {
+  km <- kmeans(X_scaled, centers = k, nstart = 25)
+  wcss_values[k] <- km$tot.withinss
+}
+
+# Visualizar
+elbow_df <- data.frame(K = k_values, WCSS = wcss_values)
+print(elbow_df)
+
+# Gráfico del codo
+ggplot(elbow_df, aes(x = K, y = WCSS)) +
+  geom_line(color = "steelblue", size = 1) +
+  geom_point(color = "darkred", size = 3) +
+  geom_vline(xintercept = 3, linetype = "dashed", color = "red", alpha = 0.5) +
+  labs(title = "Método del Codo",
+       subtitle = "Buscar el 'codo' donde WCSS deja de decrecer significativamente",
+       x = "Número de clusters (K)",
+       y = "Within-Cluster Sum of Squares (WCSS)") +
+  theme_minimal() +
+  scale_x_continuous(breaks = 1:10)
+
+cat("\nInterpretación:\n")
+cat("- El WCSS siempre decrece al aumentar K\n")
+cat("- Buscar el punto donde el decremento se vuelve marginal\n")
+cat("- En este caso, el 'codo' sugiere K = 2 o K = 3\n")
+
+# Calcular diferencias (segunda derivada aproximada)
+diferencias <- -diff(wcss_values)
+dif2 <- -diff(diferencias)
+
+cat("\n=== ANÁLISIS DE CURVATURA ===\n")
+cat("Reducción de WCSS al aumentar K:\n")
+for(i in 2:length(wcss_values)) {
+  cat(sprintf("K=%d → K=%d: reducción = %.2f\n",
+              i-1, i, diferencias[i-1]))
+}
+
+# Método alternativo: usar factoextra
+fviz_nbclust(X_scaled, kmeans, method = "wss", k.max = 10) +
+  geom_vline(xintercept = 3, linetype = 2) +
+  labs(title = "Método del Codo (factoextra)",
+       subtitle = "Óptimo sugerido: K = 3")
+```
+
+**Pregunta 4**: ¿Qué limitaciones tiene el método del codo?
+
+### Ejercicio 1.7: Método de la Silueta (Silhouette)
+
+```{r silhouette-method}
+cat("=== MÉTODO DE LA SILUETA ===\n\n")
+
+# Calcular silhouette promedio para diferentes valores de K
+k_values <- 2:10
+silhouette_avg <- numeric(length(k_values))
+
+for(i in seq_along(k_values)) {
+  k <- k_values[i]
+  km <- kmeans(X_scaled, centers = k, nstart = 25)
+  sil <- silhouette(km$cluster, dist(X_scaled))
+  silhouette_avg[i] <- mean(sil[, 3])
+}
+
+# Visualizar
+sil_df <- data.frame(K = k_values, Silhouette = silhouette_avg)
+print(sil_df)
+
+ggplot(sil_df, aes(x = K, y = Silhouette)) +
+  geom_line(color = "steelblue", size = 1) +
+  geom_point(color = "darkred", size = 3) +
+  geom_vline(xintercept = k_values[which.max(silhouette_avg)],
+             linetype = "dashed", color = "red", alpha = 0.5) +
+  labs(title = "Método de la Silueta",
+       subtitle = paste("Óptimo:", k_values[which.max(silhouette_avg)], "clusters"),
+       x = "Número de clusters (K)",
+       y = "Silhouette promedio") +
+  theme_minimal() +
+  scale_x_continuous(breaks = 2:10)
+
+cat("\nÓptimo según Silhouette: K =", k_values[which.max(silhouette_avg)], "\n")
+cat("Silhouette máximo:", round(max(silhouette_avg), 4), "\n")
+
+# Método alternativo: usar factoextra
+fviz_nbclust(X_scaled, kmeans, method = "silhouette", k.max = 10) +
+  labs(title = "Método de la Silueta (factoextra)")
+
+# Análisis detallado para K óptimo
+k_opt <- k_values[which.max(silhouette_avg)]
+km_opt <- kmeans(X_scaled, centers = k_opt, nstart = 25)
+sil_opt <- silhouette(km_opt$cluster, dist(X_scaled))
+
+cat("\n=== ANÁLISIS DETALLADO PARA K =", k_opt, "===\n")
+cat("Silhouette por cluster:\n")
+print(summary(sil_opt))
+
+# Visualizar silhouette plot
+fviz_silhouette(sil_opt, palette = "jco", ggtheme = theme_minimal()) +
+  labs(title = paste("Silhouette Plot para K =", k_opt))
+```
+
+### Ejercicio 1.8: Estadístico Gap
+
+```{r gap-statistic}
+cat("=== ESTADÍSTICO GAP ===\n\n")
+
+# Calcular estadístico Gap
+# Nota: Este cálculo puede tardar 1-2 minutos
+gap_stat <- clusGap(X_scaled, FUN = kmeans, nstart = 25,
+                    K.max = 10, B = 50)
+
+cat("Tabla de resultados:\n")
+print(gap_stat, method = "firstmax")
+
+# Visualizar
+fviz_gap_stat(gap_stat) +
+  labs(title = "Estadístico Gap",
+       subtitle = "K óptimo: donde Gap(k) es máximo")
+
+cat("\n=== INTERPRETACIÓN ===\n")
+cat("El estadístico Gap compara la varianza intracluster con la esperada\n")
+cat("bajo una distribución uniforme (datos sin estructura).\n\n")
+cat("Regla de decisión:\n")
+cat("- Elegir el K más pequeño tal que: Gap(k) >= Gap(k+1) - SE(k+1)\n")
+cat("- O simplemente el K que maximiza Gap(k)\n")
+
+# Identificar K óptimo
+k_opt_gap <- maxSE(gap_stat$Tab[, "gap"], gap_stat$Tab[, "SE.sim"], method = "firstmax")
+cat(sprintf("\nK óptimo según Gap: %d\n", k_opt_gap))
+```
+
+### Ejercicio 1.9: NbClust - 30 criterios simultáneos
+
+```{r nbclust}
+cat("=== NbClust: 30 ÍNDICES DE VALIDACIÓN ===\n\n")
+cat("Ejecutando 30 criterios diferentes...\n")
+cat("(Esto puede tardar 1-2 minutos)\n\n")
+
+# Usar muestra del dataset para acelerar
+set.seed(123)
+sample_idx <- sample(1:nrow(X_scaled), 100)
+X_sample <- X_scaled[sample_idx, ]
+
+# NbClust con múltiples índices
+nb_result <- NbClust(data = X_sample,
+                     distance = "euclidean",
+                     min.nc = 2, max.nc = 10,
+                     method = "kmeans",
+                     index = "all")
+
+cat("\n=== RESUMEN DE RESULTADOS ===\n")
+cat("\nNúmero de clusters sugerido por cada criterio:\n")
+print(table(nb_result$Best.nc[1, ]))
+
+cat("\n\nCriterio de mayoría:\n")
+cat("Número óptimo de clusters:", nb_result$Best.nc[1, 1], "\n")
+
+# Visualizar
+barplot(table(nb_result$Best.nc[1, ]),
+        col = "steelblue",
+        main = "Votación de 30 criterios",
+        xlab = "Número de clusters",
+        ylab = "Frecuencia (número de criterios)")
+
+cat("\n=== CONCLUSIÓN ===\n")
+cat("Usando múltiples criterios obtenemos una decisión más robusta.\n")
+```
+
+**Pregunta 5**: Si diferentes métodos sugieren valores distintos de K, ¿cómo decidirías?
+
+# Parte 2: Clustering Jerárquico
+
+## 2.1 Clustering Jerárquico Aglomerativo
+
+### Ejercicio 2.1: Dendrograma básico
+
+```{r dendrograma-basico}
+cat("=== CLUSTERING JERÁRQUICO AGLOMERATIVO ===\n\n")
+
+# Seleccionar una muestra de Iris
+set.seed(42)
+sample_idx <- c(
+  sample(which(iris$Species == "setosa"), 15),
+  sample(which(iris$Species == "versicolor"), 15),
+  sample(which(iris$Species == "virginica"), 15)
+)
+iris_sample <- iris[sample_idx, ]
+X_sample <- scale(iris_sample[, 1:4])
+
+# Etiquetas con especies
+labels_sample <- paste0(1:45, "-", substr(iris_sample$Species, 1, 3))
+
+# Calcular matriz de distancias
+dist_matrix <- dist(X_sample, method = "euclidean")
+
+# Clustering jerárquico con enlace completo
+hc_complete <- hclust(dist_matrix, method = "complete")
+
+cat("Métodos de enlace disponibles:\n")
+cat("- 'single': enlace simple (mínima distancia)\n")
+cat("- 'complete': enlace completo (máxima distancia)\n")
+cat("- 'average': enlace promedio\n")
+cat("- 'ward.D2': método de Ward (minimiza varianza)\n\n")
+
+# Visualizar dendrograma
+plot(hc_complete, labels = labels_sample, cex = 0.6,
+     main = "Dendrograma - Enlace Completo",
+     xlab = "Observaciones", ylab = "Altura", sub = "")
+rect.hclust(hc_complete, k = 3, border = 2:4)
+
+cat("=== INTERPRETACIÓN DEL DENDROGRAMA ===\n")
+cat("- Eje X: observaciones (cada hoja es una observación)\n")
+cat("- Eje Y: altura de fusión (distancia entre clusters)\n")
+cat("- Cuanto mayor la altura, más diferentes son los clusters que se fusionan\n")
+cat("- Cortar el árbol a cierta altura determina el número de clusters\n")
+```
+
+### Ejercicio 2.2: Comparación de métodos de enlace
+
+```{r comparacion-enlaces}
+cat("=== COMPARACIÓN DE MÉTODOS DE ENLACE ===\n\n")
+
+# Calcular clustering con diferentes métodos
+hc_single <- hclust(dist_matrix, method = "single")
+hc_complete <- hclust(dist_matrix, method = "complete")
+hc_average <- hclust(dist_matrix, method = "average")
+hc_ward <- hclust(dist_matrix, method = "ward.D2")
+
+# Visualizar todos
+par(mfrow = c(2, 2))
+
+plot(hc_single, labels = FALSE, main = "Enlace Simple",
+     xlab = "", ylab = "Altura", sub = "")
+rect.hclust(hc_single, k = 3, border = "red")
+
+plot(hc_complete, labels = FALSE, main = "Enlace Completo",
+     xlab = "", ylab = "Altura", sub = "")
+rect.hclust(hc_complete, k = 3, border = "red")
+
+plot(hc_average, labels = FALSE, main = "Enlace Promedio",
+     xlab = "", ylab = "Altura", sub = "")
+rect.hclust(hc_average, k = 3, border = "red")
+
+plot(hc_ward, labels = FALSE, main = "Ward",
+     xlab = "", ylab = "Altura", sub = "")
+rect.hclust(hc_ward, k = 3, border = "red")
+
+par(mfrow = c(1, 1))
+
+# Comparar asignaciones para K=3
+clusters_single <- cutree(hc_single, k = 3)
+clusters_complete <- cutree(hc_complete, k = 3)
+clusters_average <- cutree(hc_average, k = 3)
+clusters_ward <- cutree(hc_ward, k = 3)
+
+cat("\nTamaños de clusters para K=3:\n\n")
+cat("Enlace Simple:\n")
+print(table(clusters_single))
+cat("\nEnlace Completo:\n")
+print(table(clusters_complete))
+cat("\nEnlace Promedio:\n")
+print(table(clusters_average))
+cat("\nWard:\n")
+print(table(clusters_ward))
+
+cat("\n=== COMPARACIÓN CON ESPECIES REALES ===\n\n")
+
+# Adjusted Rand Index (mide concordancia)
+library(mclust)
+ari_single <- adjustedRandIndex(clusters_single, iris_sample$Species)
+ari_complete <- adjustedRandIndex(clusters_complete, iris_sample$Species)
+ari_average <- adjustedRandIndex(clusters_average, iris_sample$Species)
+ari_ward <- adjustedRandIndex(clusters_ward, iris_sample$Species)
+
+comparacion_df <- data.frame(
+  Método = c("Single", "Complete", "Average", "Ward"),
+  ARI = round(c(ari_single, ari_complete, ari_average, ari_ward), 4)
+)
+comparacion_df <- comparacion_df[order(-comparacion_df$ARI), ]
+
+print(comparacion_df)
+
+cat("\nAdjusted Rand Index (ARI):\n")
+cat("- Rango: [-1, 1]\n")
+cat("- 1: Concordancia perfecta\n")
+cat("- 0: Concordancia aleatoria\n")
+cat("- Negativo: Peor que aleatorio\n")
+cat("\n¡El método de Ward suele dar mejores resultados!\n")
+```
+
+**Pregunta 6**: ¿Por qué el método Ward suele funcionar mejor que los otros?
+
+### Ejercicio 2.3: Dendrograma mejorado con dendextend
+
+```{r dendrograma-coloreado}
+cat("=== DENDROGRAMAS MEJORADOS ===\n\n")
+
+library(dendextend)
+
+# Convertir a objeto dendrogram
+dend <- as.dendrogram(hc_ward)
+
+# Colorear según especies reales
+species_colors <- as.numeric(iris_sample$Species)
+dend_colored <- dend %>%
+  set("labels", labels_sample) %>%
+  set("labels_cex", 0.5) %>%
+  set("branches_k_color", k = 3) %>%
+  set("branches_lwd", 1.5)
+
+# Visualizar
+plot(dend_colored, main = "Dendrograma Coloreado por Cluster (Ward, K=3)")
+
+# Dendrograma circular
+par(mar = c(1, 1, 3, 1))
+circlize_dendrogram(dend_colored,
+                    labels_track_height = 0.3,
+                    dend_track_height = 0.5)
+title("Dendrograma Circular")
+```
+
+### Ejercicio 2.4: Comparación de dendrogramas (Tanglegram)
+
+```{r tanglegram}
+cat("=== TANGLEGRAM: COMPARAR DOS DENDROGRAMAS ===\n\n")
+
+# Crear dos dendrogramas con diferentes métodos
+dend_complete <- as.dendrogram(hc_complete)
+dend_ward <- as.dendrogram(hc_ward)
+
+# Crear tanglegram
+dend_list <- dendlist(
+  "Complete" = dend_complete,
+  "Ward" = dend_ward
+)
+
+# Calcular entrelazamiento (entanglement)
+entanglement_value <- entanglement(dend_list)
+cat("Entanglement (entrelazamiento):", round(entanglement_value, 4), "\n")
+cat("Interpretación:\n")
+cat("- 0: Dendrogramas idénticos\n")
+cat("- 1: Dendrogramas completamente diferentes\n\n")
+
+# Visualizar tanglegram
+tanglegram(dend_complete, dend_ward,
+           highlight_distinct_edges = FALSE,
+           common_subtrees_color_lines = FALSE,
+           common_subtrees_color_branches = TRUE,
+           main = "Tanglegram: Complete vs Ward",
+           main_left = "Complete",
+           main_right = "Ward",
+           lab.cex = 0.5,
+           margin_inner = 7)
+```
+
+## 2.2 Clustering Jerárquico Divisivo (DIANA)
+
+### Ejercicio 2.5: DIANA vs AGNES
+
+```{r diana}
+cat("=== DIANA: CLUSTERING JERÁRQUICO DIVISIVO ===\n\n")
+
+# DIANA (DIvisive ANAlysis)
+diana_result <- diana(X_sample)
+
+# AGNES (AGglomerative NESting)
+agnes_result <- agnes(X_sample, method = "ward")
+
+cat("Coeficiente aglomerativo (AGNES):", round(agnes_result$ac, 4), "\n")
+cat("Coeficiente divisivo (DIANA):", round(diana_result$dc, 4), "\n\n")
+cat("Interpretación:\n")
+cat("- Valores cercanos a 1: estructura de clustering fuerte\n")
+cat("- Valores cercanos a 0: estructura de clustering débil\n\n")
+
+# Visualizar ambos
+par(mfrow = c(1, 2))
+
+plot(agnes_result, which.plots = 2, main = "AGNES (Aglomerativo)")
+plot(diana_result, which.plots = 2, main = "DIANA (Divisivo)")
+
+par(mfrow = c(1, 1))
+
+# Comparar asignaciones
+clusters_agnes <- cutree(agnes_result, k = 3)
+clusters_diana <- cutree(diana_result, k = 3)
+
+cat("\n=== COMPARACIÓN DE CLUSTERS (K=3) ===\n")
+cat("\nTamaños AGNES:\n")
+print(table(clusters_agnes))
+cat("\nTamaños DIANA:\n")
+print(table(clusters_diana))
+
+# Concordancia
+ari_comparison <- adjustedRandIndex(clusters_agnes, clusters_diana)
+cat(sprintf("\nARI entre AGNES y DIANA: %.4f\n", ari_comparison))
+```
+
+**Pregunta 7**: ¿Cuándo preferirías usar DIANA en lugar de AGNES?
+
+# Parte 3: Mapas Auto-Organizados (SOM)
+
+## 3.1 Introducción a SOM
+
+### Ejercicio 3.1: SOM básico
+
+```{r som-basico}
+cat("=== MAPAS AUTO-ORGANIZADOS DE KOHONEN (SOM) ===\n\n")
+
+library(kohonen)
+
+# Preparar datos
+X_som <- as.matrix(scale(iris[, 1:4]))
+
+# Crear grid 4x4
+som_grid <- somgrid(xdim = 4, ydim = 4, topo = "hexagonal")
+
+cat("Estructura del SOM:\n")
+cat("- Dimensiones: 4x4 = 16 neuronas\n")
+cat("- Topología: hexagonal\n")
+cat("- Variables de entrada:", ncol(X_som), "\n\n")
+
+# Entrenar SOM
+set.seed(123)
+som_model <- som(X_som,
+                 grid = som_grid,
+                 rlen = 500,  # número de iteraciones
+                 alpha = c(0.05, 0.01),  # tasa de aprendizaje
+                 keep.data = TRUE)
+
+cat("Entrenamiento completado.\n")
+cat("Iteraciones:", 500, "\n\n")
+
+# Visualizar evolución del entrenamiento
+plot(som_model, type = "changes",
+     main = "Evolución del entrenamiento")
+
+cat("=== INTERPRETACIÓN ===\n")
+cat("La gráfica muestra cómo disminuye el error durante el entrenamiento.\n")
+cat("Convergencia indica que el modelo ha aprendido la estructura de los datos.\n\n")
+
+# Calcular métricas de calidad del SOM
+cat("=== MÉTRICAS DE CALIDAD DEL SOM ===\n\n")
+
+# 1. Quantization Error (error de cuantización)
+# Promedio de distancias entre cada observación y su neurona ganadora
+quantization_error <- mean(som_model$distances)
+cat(sprintf("Quantization Error: %.4f\n", quantization_error))
+cat("Interpretación:\n")
+cat("  - Mide qué tan bien las neuronas representan los datos\n")
+cat("  - Menor es mejor (observaciones cerca de sus neuronas ganadoras)\n")
+cat("  - Típicamente se compara entre diferentes configuraciones de SOM\n\n")
+
+# 2. Topographic Error (error topológico)
+# Proporción de observaciones cuya neurona ganadora y segunda ganadora NO son vecinas
+# Calculamos manualmente: para cada observación, verificamos si las dos neuronas
+# más cercanas son vecinas en el grid
+calcular_topographic_error <- function(som_model) {
+  coords <- som_model$grid$pts
+  codebook <- som_model$codes[[1]]
+  data <- som_model$data[[1]]
+
+  errores <- 0
+  for(i in 1:nrow(data)) {
+    # Calcular distancias a todas las neuronas
+    distances <- apply(codebook, 1, function(neuron) {
+      sqrt(sum((data[i, ] - neuron)^2))
+    })
+
+    # Ordenar para encontrar las dos neuronas más cercanas
+    sorted_idx <- order(distances)
+    bmu1 <- sorted_idx[1]  # Best Matching Unit
+    bmu2 <- sorted_idx[2]  # Second Best Matching Unit
+
+    # Calcular distancia euclidiana entre estas neuronas en el grid
+    dist_grid <- sqrt(sum((coords[bmu1, ] - coords[bmu2, ])^2))
+
+    # Para topología hexagonal, vecinos directos están a distancia <= sqrt(2)
+    # Si dist_grid > sqrt(2), no son vecinos → error topológico
+    if(dist_grid > sqrt(2)) {
+      errores <- errores + 1
+    }
+  }
+
+  return(errores / nrow(data))
+}
+
+topographic_error <- calcular_topographic_error(som_model)
+cat(sprintf("Topographic Error: %.4f (%.2f%%)\n", topographic_error, topographic_error * 100))
+cat("Interpretación:\n")
+cat("  - Mide qué tan bien el SOM preserva la topología de los datos\n")
+cat("  - Menor es mejor (típicamente < 0.10 es bueno)\n")
+cat("  - 0: perfecta preservación de topología\n")
+cat("  - >0.20: topología mal preservada\n\n")
+
+# 3. Estadísticas adicionales
+cat("=== ESTADÍSTICAS DEL MODELO ===\n")
+cat(sprintf("Número de iteraciones de entrenamiento: %d\n", som_model$rlen))
+cat(sprintf("Observaciones por neurona (promedio): %.2f\n",
+            nrow(X_som) / nrow(som_model$codes[[1]])))
+cat(sprintf("Neuronas activas: %d de %d (%.1f%%)\n",
+            sum(table(som_model$unit.classif) > 0),
+            nrow(som_model$codes[[1]]),
+            sum(table(som_model$unit.classif) > 0) / nrow(som_model$codes[[1]]) * 100))
+```
+
+### Ejercicio 3.2: Visualización del SOM
+
+```{r som-visualizacion}
+cat("=== VISUALIZACIONES DEL SOM ===\n\n")
+
+# Configurar layout para múltiples gráficos
+par(mfrow = c(2, 2))
+
+# 1. Codes (pesos de cada neurona)
+plot(som_model, type = "codes",
+     main = "Codes Plot",
+     palette.name = rainbow)
+
+# 2. Counts (densidad de observaciones)
+plot(som_model, type = "counts",
+     main = "Counts Plot")
+
+# 3. Mapping (asignación de observaciones)
+plot(som_model, type = "mapping",
+     labels = iris$Species,
+     col = as.numeric(iris$Species),
+     main = "Mapping Plot",
+     pch = 19, cex = 0.7)
+legend("topright", legend = levels(iris$Species),
+       col = 1:3, pch = 19, cex = 0.8)
+
+# 4. Neighbour distances (U-matrix)
+plot(som_model, type = "dist.neighbours",
+     main = "U-Matrix",
+     palette.name = terrain.colors)
+
+par(mfrow = c(1, 1))
+
+cat("\n=== INTERPRETACIÓN DE LOS GRÁFICOS ===\n\n")
+
+cat("1. CODES PLOT:\n")
+cat("   - Muestra los pesos (valores) de cada variable en cada neurona\n")
+cat("   - Colores indican la magnitud de cada variable\n")
+cat("   - Revela qué variables dominan en cada región del mapa\n\n")
+
+cat("2. COUNTS PLOT:\n")
+cat("   - Muestra cuántas observaciones se asignan a cada neurona\n")
+cat("   - Números grandes: regiones densas\n")
+cat("   - Ceros: neuronas sin observaciones\n\n")
+
+cat("3. MAPPING PLOT:\n")
+cat("   - Muestra la posición de cada observación en el mapa\n")
+cat("   - Coloreado por especies (supervisado)\n")
+cat("   - Observaciones similares se agrupan espacialmente\n\n")
+
+cat("4. U-MATRIX:\n")
+cat("   - Muestra distancias entre neuronas vecinas\n")
+cat("   - Colores oscuros: fronteras entre clusters\n")
+cat("   - Colores claros: interior de clusters homogéneos\n")
+```
+
+### Ejercicio 3.3: Análisis de variables individuales
+
+```{r som-variables}
+cat("=== ANÁLISIS DE VARIABLES INDIVIDUALES ===\n\n")
+
+# Visualizar cada variable por separado
+par(mfrow = c(2, 2))
+
+for(i in 1:4) {
+  plot(som_model, type = "property",
+       property = som_model$codes[[1]][, i],
+       main = colnames(iris)[i],
+       palette.name = colorRampPalette(c("blue", "white", "red")))
+}
+
+par(mfrow = c(1, 1))
+
+cat("\nInterpretación:\n")
+cat("- Cada gráfico muestra cómo varía una variable a través del mapa\n")
+cat("- Colores similares indican valores similares de esa variable\n")
+cat("- Se pueden identificar patrones de covariación entre variables\n")
+```
+
+### Ejercicio 3.4: Clustering sobre el SOM
+
+```{r som-clustering}
+cat("=== CLUSTERING JERÁRQUICO SOBRE EL SOM ===\n\n")
+
+# Obtener códigos (vectores de pesos de cada neurona)
+som_codes <- som_model$codes[[1]]
+
+cat("Códigos del SOM:", nrow(som_codes), "neuronas x",
+    ncol(som_codes), "variables\n\n")
+
+# Clustering jerárquico sobre los códigos
+dist_som <- dist(som_codes)
+hc_som <- hclust(dist_som, method = "ward.D2")
+
+# Determinar número óptimo de clusters
+k_som <- 3  # Sabemos que hay 3 especies
+som_clusters <- cutree(hc_som, k = k_som)
+
+cat("Número de clusters:", k_som, "\n")
+cat("Asignación de neuronas a clusters:\n")
+print(som_clusters)
+
+# Visualizar clusters en el SOM
+plot(som_model, type = "mapping",
+     bgcol = rainbow(k_som)[som_clusters],
+     main = paste("SOM con", k_som, "clusters"))
+add.cluster.boundaries(som_model, som_clusters)
+
+# Asignar clusters a observaciones originales
+obs_clusters <- som_clusters[som_model$unit.classif]
+
+cat("\n=== COMPARACIÓN CON ESPECIES REALES ===\n")
+tabla_som <- table(Cluster_SOM = obs_clusters, Especie = iris$Species)
+print(tabla_som)
+
+ari_som <- adjustedRandIndex(obs_clusters, iris$Species)
+cat(sprintf("\nARI (SOM vs Especies reales): %.4f\n", ari_som))
+
+cat("\n=== VENTAJAS DEL SOM ===\n")
+cat("1. Reducción de dimensionalidad (4D → 2D)\n")
+cat("2. Preserva la topología (observaciones similares están cerca)\n")
+cat("3. Visualización intuitiva de alta dimensionalidad\n")
+cat("4. Puede revelar subestructuras en los datos\n")
+```
+
+**Pregunta 8**: ¿Qué ventajas tiene hacer clustering sobre un SOM vs clustering directo?
+
+# Parte 4: Evaluación y Validación de Clustering
+
+## 4.1 Índices de Validación Interna
+
+### Ejercicio 4.1: Comparación de métricas de calidad
+
+```{r validacion-interna}
+cat("=== VALIDACIÓN INTERNA DE CLUSTERING ===\n\n")
+
+# Aplicar diferentes algoritmos
+X_scaled <- scale(iris[, 1:4])
+
+km3 <- kmeans(X_scaled, centers = 3, nstart = 25)
+km4 <- kmeans(X_scaled, centers = 4, nstart = 25)
+pam3 <- pam(X_scaled, k = 3)
+hc_ward <- hclust(dist(X_scaled), method = "ward.D2")
+clusters_hc3 <- cutree(hc_ward, k = 3)
+
+# Calcular métricas de validación interna
+library(clValid)
+
+# Silhouette
+sil_km3 <- mean(silhouette(km3$cluster, dist(X_scaled))[, 3])
+sil_km4 <- mean(silhouette(km4$cluster, dist(X_scaled))[, 3])
+sil_pam3 <- pam3$silinfo$avg.width
+sil_hc3 <- mean(silhouette(clusters_hc3, dist(X_scaled))[, 3])
+
+# Dunn Index (mayor es mejor)
+library(fpc)
+dunn_km3 <- cluster.stats(dist(X_scaled), km3$cluster)$dunn
+dunn_km4 <- cluster.stats(dist(X_scaled), km4$cluster)$dunn
+dunn_pam3 <- cluster.stats(dist(X_scaled), pam3$cluster)$dunn
+dunn_hc3 <- cluster.stats(dist(X_scaled), clusters_hc3)$dunn
+
+# Connectivity (menor es mejor)
+conn_km3 <- cluster.stats(dist(X_scaled), km3$cluster)$dunn2
+conn_km4 <- cluster.stats(dist(X_scaled), km4$cluster)$dunn2
+conn_pam3 <- cluster.stats(dist(X_scaled), pam3$cluster)$dunn2
+conn_hc3 <- cluster.stats(dist(X_scaled), clusters_hc3)$dunn2
+
+cat("=== ÍNDICES DE VALIDACIÓN INTERNA ===\n\n")
+
+validacion_df <- data.frame(
+  Método = c("K-means (K=3)", "K-means (K=4)", "PAM (K=3)", "Ward (K=3)"),
+  Silhouette = round(c(sil_km3, sil_km4, sil_pam3, sil_hc3), 4),
+  Dunn = round(c(dunn_km3, dunn_km4, dunn_pam3, dunn_hc3), 4),
+  Connectivity = round(c(conn_km3, conn_km4, conn_pam3, conn_hc3), 4)
+)
+
+print(validacion_df)
+
+cat("\n=== INTERPRETACIÓN DE ÍNDICES ===\n\n")
+
+cat("SILHOUETTE (rango [-1, 1]):\n")
+cat("- Mayor es mejor\n")
+cat("- > 0.7: estructura fuerte\n")
+cat("- 0.5-0.7: estructura razonable\n")
+cat("- 0.25-0.5: estructura débil\n")
+cat("- < 0.25: sin estructura\n\n")
+
+cat("DUNN INDEX:\n")
+cat("- Mayor es mejor\n")
+cat("- Ratio de mínima distancia entre clusters / máximo diámetro intracluster\n")
+cat("- Favorece clusters compactos y bien separados\n\n")
+
+cat("CONNECTIVITY:\n")
+cat("- Menor es mejor\n")
+cat("- Mide el grado de conexión entre observaciones de un cluster\n")
+cat("- Basado en vecinos más cercanos\n\n")
+
+# Identificar mejor según cada métrica
+cat("=== MEJOR MÉTODO SEGÚN CADA ÍNDICE ===\n")
+cat("Silhouette:", validacion_df$Método[which.max(validacion_df$Silhouette)], "\n")
+cat("Dunn:", validacion_df$Método[which.max(validacion_df$Dunn)], "\n")
+cat("Connectivity:", validacion_df$Método[which.min(validacion_df$Connectivity)], "\n")
+```
+
+## 4.2 Validación Externa (cuando conocemos las etiquetas verdaderas)
+
+### Ejercicio 4.2: Métricas de concordancia
+
+```{r validacion-externa}
+cat("=== VALIDACIÓN EXTERNA ===\n\n")
+cat("(Solo posible cuando tenemos las etiquetas verdaderas)\n\n")
+
+# Comparar con especies reales
+especies_real <- iris$Species
+
+# Calcular métricas de concordancia
+library(mclust)
+
+ari_km3 <- adjustedRandIndex(km3$cluster, especies_real)
+ari_km4 <- adjustedRandIndex(km4$cluster, especies_real)
+ari_pam3 <- adjustedRandIndex(pam3$cluster, especies_real)
+ari_hc3 <- adjustedRandIndex(clusters_hc3, especies_real)
+
+# NMI (Normalized Mutual Information)
+library(aricode)
+nmi_km3 <- NMI(km3$cluster, especies_real)
+nmi_km4 <- NMI(km4$cluster, especies_real)
+nmi_pam3 <- NMI(pam3$cluster, especies_real)
+nmi_hc3 <- NMI(clusters_hc3, especies_real)
+
+cat("=== MÉTRICAS DE CONCORDANCIA ===\n\n")
+
+concordancia_df <- data.frame(
+  Método = c("K-means (K=3)", "K-means (K=4)", "PAM (K=3)", "Ward (K=3)"),
+  ARI = round(c(ari_km3, ari_km4, ari_pam3, ari_hc3), 4),
+  NMI = round(c(nmi_km3, nmi_km4, nmi_pam3, nmi_hc3), 4)
+)
+
+print(concordancia_df)
+
+cat("\n=== INTERPRETACIÓN ===\n\n")
+
+cat("ADJUSTED RAND INDEX (ARI):\n")
+cat("- Rango: [-1, 1], aunque típicamente [0, 1]\n")
+cat("- 1: concordancia perfecta\n")
+cat("- 0: concordancia aleatoria\n")
+cat("- Ajustado por azar\n\n")
+
+cat("NORMALIZED MUTUAL INFORMATION (NMI):\n")
+cat("- Rango: [0, 1]\n")
+cat("- 1: información mutua perfecta\n")
+cat("- 0: independencia\n")
+cat("- Basado en entropía\n\n")
+
+# Visualizar matrices de confusión
+cat("=== MATRICES DE CONFUSIÓN ===\n\n")
+
+cat("K-means (K=3):\n")
+print(table(Cluster = km3$cluster, Especie = especies_real))
+
+cat("\nPAM (K=3):\n")
+print(table(Cluster = pam3$cluster, Especie = especies_real))
+```
+
+**Pregunta 9**: ¿Por qué K-means con K=4 tiene peor ARI que con K=3?
+
+# Parte 5: Caso de Estudio Completo
+
+## 5.1 Análisis de Segmentación de Clientes
+
+### Ejercicio 5.1: Dataset completo con análisis integral
+
+```{r caso-estudio}
+cat("=== CASO DE ESTUDIO: SEGMENTACIÓN DE AUTOMÓVILES ===\n\n")
+
+# Cargar datos
+data(mtcars)
+cat("Dataset: mtcars (32 automóviles, 11 variables)\n\n")
+
+# Exploración inicial
+cat("Variables:\n")
+print(names(mtcars))
+
+# Seleccionar variables relevantes para clustering
+vars_clustering <- c("mpg", "disp", "hp", "wt", "qsec")
+X <- mtcars[, vars_clustering]
+
+cat("\nVariables seleccionadas:", paste(vars_clustering, collapse = ", "), "\n")
+cat("Razón: variables continuas relacionadas con rendimiento\n\n")
+
+# Estandarizar
+X_scaled <- scale(X)
+
+cat("=== PASO 1: DETERMINAR K ÓPTIMO ===\n\n")
+
+# Método del codo
+fviz_nbclust(X_scaled, kmeans, method = "wss", k.max = 10) +
+  labs(title = "Método del Codo") +
+  geom_vline(xintercept = 3, linetype = 2, color = "red")
+
+# Método de la silueta
+fviz_nbclust(X_scaled, kmeans, method = "silhouette", k.max = 10) +
+  labs(title = "Método de la Silueta")
+
+cat("Conclusión: K = 3 parece óptimo\n\n")
+
+cat("=== PASO 2: APLICAR CLUSTERING ===\n\n")
+
+# K-means
+set.seed(123)
+km_final <- kmeans(X_scaled, centers = 3, nstart = 25)
+
+# PAM
+pam_final <- pam(X_scaled, k = 3)
+
+# Jerárquico
+hc_final <- hclust(dist(X_scaled), method = "ward.D2")
+clusters_hc_final <- cutree(hc_final, k = 3)
+
+cat("Tamaños de clusters (K-means):\n")
+print(km_final$size)
+
+cat("\n=== PASO 3: VISUALIZACIÓN ===\n\n")
+
+# PCA para visualización
+pca_result <- prcomp(X_scaled)
+
+# Visualizar k-means
+fviz_cluster(km_final, data = X_scaled,
+             palette = "jco",
+             ellipse.type = "convex",
+             repel = TRUE,
+             ggtheme = theme_minimal(),
+             main = "Segmentación de Automóviles (K-means)")
+
+# Dendrograma
+fviz_dend(hc_final, k = 3, k_colors = "jco",
+          rect = TRUE, rect_fill = TRUE,
+          main = "Dendrograma Jerárquico")
+
+cat("=== PASO 4: INTERPRETACIÓN DE CLUSTERS ===\n\n")
+
+# Añadir clusters a datos originales
+mtcars_clustered <- mtcars
+mtcars_clustered$cluster <- km_final$cluster
+
+# Estadísticas por cluster
+cat("Características promedio por cluster:\n\n")
+cluster_summary <- aggregate(. ~ cluster, data = mtcars_clustered[, c(vars_clustering, "cluster")],
+                             FUN = mean)
+print(round(cluster_summary, 2))
+
+# Interpretar clusters y asignar etiquetas
+cat("\n=== INTERPRETACIÓN DE SEGMENTOS ===\n\n")
+
+# Identificar perfiles de clusters basados en centroides estandarizados
+cluster_profiles <- data.frame(
+  cluster = 1:3,
+  mpg_z = km_final$centers[, "mpg"],
+  hp_z = km_final$centers[, "hp"],
+  wt_z = km_final$centers[, "wt"]
+)
+
+# Función para asignar etiqueta descriptiva
+asignar_etiqueta <- function(mpg_z, hp_z, wt_z) {
+  if(mpg_z > 0.5 && hp_z < 0 && wt_z < 0) {
+    return("Económicos")
+  } else if(hp_z > 0.5 && wt_z > 0 && mpg_z < 0) {
+    return("Potentes/Pesados")
+  } else {
+    return("Balanceados")
+  }
+}
+
+# Asignar etiquetas
+cluster_labels <- sapply(1:3, function(k) {
+  asignar_etiqueta(
+    cluster_profiles$mpg_z[k],
+    cluster_profiles$hp_z[k],
+    cluster_profiles$wt_z[k]
+  )
+})
+
+# Tabla resumen con etiquetas
+cluster_interpretation <- data.frame(
+  Cluster = 1:3,
+  Etiqueta = cluster_labels,
+  N_vehiculos = km_final$size,
+  MPG_promedio = round(tapply(mtcars$mpg, km_final$cluster, mean), 1),
+  HP_promedio = round(tapply(mtcars$hp, km_final$cluster, mean), 0),
+  WT_promedio = round(tapply(mtcars$wt, km_final$cluster, mean), 2)
+)
+
+cat("=== RESUMEN DE SEGMENTOS CON ETIQUETAS ===\n")
+print(cluster_interpretation)
+
+cat("\n=== DESCRIPCIÓN DETALLADA POR SEGMENTO ===\n\n")
+
+# Usar los centros estandarizados del resultado de kmeans
+std_centers <- km_final$centers
+
+for(k in 1:3) {
+  cat(sprintf("CLUSTER %d: %s\n", k, cluster_labels[k]))
+  cat(sprintf("Tamaño: %d vehículos (%.1f%%)\n",
+              km_final$size[k],
+              km_final$size[k]/nrow(mtcars)*100))
+
+  cat("Características destacadas (en comparación con la media):\n")
+
+  # Usar los centros estandarizados para la comparación
+  if(std_centers[k, "mpg"] > 0.5) cat("  - Alto rendimiento de combustible (mpg)\n")
+  if(std_centers[k, "mpg"] < -0.5) cat("  - Bajo rendimiento de combustible (mpg)\n")
+  if(std_centers[k, "hp"] > 0.5) cat("  - Alta potencia (hp)\n")
+  if(std_centers[k, "hp"] < -0.5) cat("  - Baja potencia (hp)\n")
+  if(std_centers[k, "wt"] > 0.5) cat("  - Vehículos pesados (wt)\n")
+  if(std_centers[k, "wt"] < -0.5) cat("  - Vehículos ligeros (wt)\n")
+
+  cat("  Ejemplos representativos:\n")
+  ejemplos <- rownames(mtcars)[km_final$cluster == k][1:min(3, km_final$size[k])]
+  for(ej in ejemplos) {
+    cat(sprintf("    · %s\n", ej))
+  }
+  cat("\n")
+}
+
+cat("=== PASO 5: VALIDACIÓN ===\n\n")
+
+sil_final <- silhouette(km_final$cluster, dist(X_scaled))
+cat("Silhouette promedio:", round(mean(sil_final[, 3]), 4), "\n")
+
+fviz_silhouette(sil_final, palette = "jco",
+                ggtheme = theme_minimal()) +
+  labs(title = "Silhouette Plot - Segmentación Final")
+
+cat("\n=== PASO 6: VALIDACIÓN EXTERNA (Hipotético) ===\n\n")
+
+cat("Nota: El dataset mtcars NO tiene etiquetas verdaderas de tipo de vehículo.\n")
+cat("Sin embargo, mostramos cómo se haría la validación externa si existieran.\n\n")
+
+# Crear etiquetas hipotéticas basadas en características conocidas
+# (Solo para demostración pedagógica)
+cat("Supongamos que tuviéramos etiquetas de tipo de vehículo:\n")
+cat("- SUV/Camionetas: vehículos pesados y potentes\n")
+cat("- Deportivos: alta potencia, ligeros, bajo mpg\n")
+cat("- Compactos: ligeros, económicos\n\n")
+
+# Asignar etiquetas hipotéticas (basado en conocimiento del dataset)
+etiquetas_hipoteticas <- rep(NA, nrow(mtcars))
+
+# Compactos (mpg > 25, wt < 2.5)
+etiquetas_hipoteticas[mtcars$mpg > 25 & mtcars$wt < 2.5] <- "Compacto"
+
+# SUV/Camionetas (wt > 3.5, hp > 150)
+etiquetas_hipoteticas[mtcars$wt > 3.5 & mtcars$hp > 150] <- "SUV"
+
+# Deportivos (hp > 150, wt < 3.5)
+etiquetas_hipoteticas[mtcars$hp > 150 & mtcars$wt < 3.5] <- "Deportivo"
+
+# Resto son sedanes
+etiquetas_hipoteticas[is.na(etiquetas_hipoteticas)] <- "Sedan"
+
+cat("Distribución de etiquetas hipotéticas:\n")
+print(table(etiquetas_hipoteticas))
+
+cat("\n=== MÉTRICAS DE VALIDACIÓN EXTERNA (con etiquetas hipotéticas) ===\n")
+
+# Calcular ARI y NMI
+library(mclust)
+library(aricode)
+
+ari_hipotetico <- adjustedRandIndex(km_final$cluster, etiquetas_hipoteticas)
+nmi_hipotetico <- NMI(km_final$cluster, etiquetas_hipoteticas)
+
+cat(sprintf("Adjusted Rand Index (ARI): %.4f\n", ari_hipotetico))
+cat(sprintf("Normalized Mutual Information (NMI): %.4f\n\n", nmi_hipotetico))
+
+# Matriz de confusión
+cat("Matriz de confusión (Clusters vs Etiquetas Hipotéticas):\n")
+confusion_matrix <- table(
+  Cluster = paste0("C", km_final$cluster),
+  Tipo = etiquetas_hipoteticas
+)
+print(confusion_matrix)
+
+cat("\n=== CÓMO INTERPRETAR VALIDACIÓN EXTERNA ===\n\n")
+
+cat("Si tuvieras etiquetas verdaderas, podrías:\n\n")
+
+cat("1. CALCULAR MÉTRICAS DE CONCORDANCIA:\n")
+cat("   - ARI (Adjusted Rand Index): mide acuerdo entre clustering y verdad\n")
+cat("   - NMI (Normalized Mutual Information): información mutua normalizada\n")
+cat("   - Precisión, Recall, F1-score (si asignas clusters a clases)\n\n")
+
+cat("2. ANALIZAR MATRIZ DE CONFUSIÓN:\n")
+cat("   - Identificar qué clusters corresponden a qué categorías reales\n")
+cat("   - Detectar categorías que el clustering no separa bien\n")
+cat("   - Ver si hay clusters \"puros\" (una sola categoría dominante)\n\n")
+
+cat("3. EVALUAR UTILIDAD DEL CLUSTERING:\n")
+cat("   - ARI > 0.7: excelente concordancia\n")
+cat("   - ARI 0.4-0.7: concordancia moderada-buena\n")
+cat("   - ARI < 0.4: concordancia baja\n\n")
+
+cat("4. EN PRODUCCIÓN:\n")
+cat("   - Monitorear drift: ¿Los clusters cambian con el tiempo?\n")
+cat("   - Validar en nuevos datos: ¿Los clusters generalizan?\n")
+cat("   - A/B testing: ¿El clustering mejora métricas de negocio?\n\n")
+
+cat("=== CONCLUSIONES ===\n")
+cat("1. Se identificaron 3 segmentos de automóviles\n")
+cat("2. Los clusters están bien definidos (Silhouette > 0.5)\n")
+cat("3. Cada segmento tiene características distintivas\n")
+cat("4. Las etiquetas descriptivas ayudan a la interpretación de negocio\n")
+cat("5. Esta segmentación puede usarse para:\n")
+cat("   - Estrategias de marketing diferenciadas\n")
+cat("   - Recomendaciones personalizadas\n")
+cat("   - Análisis de competencia\n")
+cat("   - Desarrollo de productos específicos por segmento\n")
+```
+
+# Recursos Adicionales
+
+## Librerías útiles en R
+
+- `cluster`: PAM, AGNES, DIANA, Silhouette
+- `factoextra`: Visualización de clustering
+- `dendextend`: Dendrogramas mejorados
+- `NbClust`: 30 índices para determinar K óptimo
+- `kohonen`: Mapas auto-organizados (SOM)
+- `fpc`: Validación de clustering
+- `clValid`: Métricas de validación
+- `mclust`: Model-based clustering
+
+## Lecturas recomendadas
+
+1. Gan, G., Ma, C., & Wu, J. (2020). *Data clustering: theory, algorithms, and applications*.
+2. Xu, D., & Tian, Y. (2015). "A comprehensive survey of clustering algorithms".
+3. Hastie et al. (2009). *The Elements of Statistical Learning* (Capítulo 14).
+
+## Preguntas de reflexión final
+
+### Fundamentos
+
+1. **¿Cuándo usarías clustering jerárquico en lugar de k-medias?**
+   - *Pista: Piensa en el conocimiento previo de K, interpretabilidad, y tamaño del dataset.*
+
+2. **¿Qué hacer si diferentes métodos sugieren distintos valores óptimos de K?**
+   - *Pista: Considera conocimiento del dominio, estabilidad de clusters, y métricas de validación.*
+
+3. **¿Cómo interpretar clusters sin etiquetas verdaderas?**
+   - *Pista: Análisis de centroides, perfiles de variables, validación con expertos del dominio.*
+
+### Aplicaciones Avanzadas
+
+4. **¿Cómo aplicarías clustering a datos no estructurados?**
+   - **Texto**: Documentos, emails, tweets, reseñas de productos
+     - *Pista: TF-IDF, word embeddings, distancia coseno*
+   - **Imágenes**: Fotos de productos, radiografías médicas, rostros
+     - *Pista: CNN features, autoencoders, embeddings visuales*
+   - **Audio**: Música, llamadas telefónicas, sonidos ambientales
+     - *Pista: MFCC features, espectrogramas*
+
+5. **¿Qué precauciones tomar al implementar clustering en producción?**
+   - **Drift de datos**: ¿Los patrones cambian con el tiempo?
+   - **Escalabilidad**: ¿El algoritmo escala con más datos?
+   - **Interpretabilidad**: ¿Los stakeholders entienden los clusters?
+   - **Actualización**: ¿Cómo incorporar nuevas observaciones?
+   - **Monitoreo**: ¿Qué métricas rastrear? (Silhouette, tamaño de clusters, etc.)
+
+### Escenarios Prácticos
+
+6. **Clustering incremental: ¿Cómo asignar nuevas observaciones a clusters existentes?**
+   - *Opciones: Distancia al centroide, modelo predictivo, re-clustering periódico*
+
+7. **Detección de drift conceptual: ¿Cuándo re-entrenar el modelo de clustering?**
+   - *Indicadores: Cambio en Silhouette, distribución de tamaños, distancia media intracluster*
+
+8. **Trade-offs en clustering: ¿K=2 vs K=10?**
+   - *Considera: Interpretabilidad vs granularidad, simplicidad vs precisión*
+
+### Casos de Uso Reales
+
+9. **Segmentación de clientes en e-commerce:**
+   - ¿Qué variables usarías? (RFM: Recency, Frequency, Monetary)
+   - ¿Cómo validarías que los segmentos son útiles para marketing?
+   - ¿Cada cuánto re-segmentarías?
+
+10. **Detección de anomalías con clustering:**
+    - ¿Cómo usarías clustering para detectar fraude o fallos?
+    - *Pista: Observaciones en clusters pequeños, lejos del centroide, Silhouette negativo*
+
+11. **Clustering multi-vista (datos de múltiples fuentes):**
+    - Cliente: datos transaccionales + comportamiento web + redes sociales
+    - ¿Cómo combinarías diferentes tipos de datos para clustering?
+    - *Pista: Concatenación de features, clustering ensemble, late fusion*
+
+### Comparación de Técnicas
+
+12. **DBSCAN vs K-medias: ¿Cuándo usar cada uno?**
+    - *DBSCAN*: No requiere K, encuentra clusters de forma arbitraria, maneja ruido
+    - *K-medias*: Más rápido, clusters globulares, requiere K
+
+13. **Clustering vs Reducción de Dimensionalidad: ¿Son complementarios?**
+    - *Ejemplo*: PCA + K-medias, t-SNE + DBSCAN, UMAP + clustering
+    - ¿Ventajas? ¿Riesgos?
+
+---
+
+**Fin del Laboratorio 4.2**

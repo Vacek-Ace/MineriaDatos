@@ -1,0 +1,1292 @@
+---
+title: "Laboratorio 4.1: Distancias y Medidas de Similitud"
+author: "Minería de Datos - Grado en Matemáticas"
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    number-sections: false
+    code-fold: false
+    theme: cosmo
+    embed-resources: true
+    self-contained: true
+editor: source
+knitr:
+  opts_chunk:
+    warning: false
+    message: false
+---
+
+# Introducción
+
+En este laboratorio trabajaremos con **distancias y medidas de similitud**, que son fundamentales para el aprendizaje basado en similitud. Nos centraremos en:
+
+- **Distancias para datos continuos** (Euclídea, Manhattan, Minkowski, Chebyshev)
+- **Distancias para datos binarios** (Jaccard, Simple Matching, etc.)
+- **Distancias para datos categóricos** (Hamming, Gower)
+- **Distancias para datos mixtos**
+- **Visualización de matrices de distancia**
+
+## Objetivos del laboratorio
+
+1. Comprender las diferentes medidas de distancia y cuándo aplicar cada una
+2. Implementar y comparar distintas métricas de distancia
+3. Analizar el efecto de la escala en las distancias
+4. Trabajar con datos de diferentes tipos (continuos, binarios, categóricos, mixtos)
+5. Visualizar y interpretar matrices de distancia
+
+# Configuración inicial
+
+```{r setup, message=FALSE, warning=FALSE}
+# Librerías necesarias
+library(tidyverse)
+library(ggplot2)
+library(cluster)
+library(pheatmap)
+library(proxy)
+library(gower)
+library(factoextra)
+
+# Configuración de gráficos
+theme_set(theme_minimal())
+```
+
+# Parte 1: Distancias para Datos Continuos
+
+## 1.1 Fundamentos de las Distancias
+
+### Ejercicio 1.1: Distancias básicas - Cálculo manual
+
+**Objetivo**: Calcular manualmente diferentes distancias para comprender sus propiedades.
+
+```{r distancias-manuales}
+# Definir dos puntos en 4 dimensiones
+x <- c(2, 4, 1, 3)
+y <- c(5, 2, 3, 6)
+
+cat("Punto x:", x, "\n")
+cat("Punto y:", y, "\n\n")
+
+# 1. Distancia Euclídea (L2)
+dist_euclidean <- sqrt(sum((x - y)^2))
+cat("Distancia Euclídea:", round(dist_euclidean, 4), "\n")
+cat("Fórmula: sqrt(sum((x - y)²))\n")
+cat("Cálculo: sqrt((2-5)² + (4-2)² + (1-3)² + (3-6)²)\n")
+cat("        = sqrt(9 + 4 + 4 + 9) = sqrt(26) =", round(dist_euclidean, 4), "\n\n")
+
+# 2. Distancia Manhattan (L1)
+dist_manhattan <- sum(abs(x - y))
+cat("Distancia Manhattan:", dist_manhattan, "\n")
+cat("Fórmula: sum(|x - y|)\n")
+cat("Cálculo: |2-5| + |4-2| + |1-3| + |3-6|\n")
+cat("        = 3 + 2 + 2 + 3 =", dist_manhattan, "\n\n")
+
+# 3. Distancia Minkowski (L3)
+p <- 3
+dist_minkowski_3 <- (sum(abs(x - y)^p))^(1/p)
+cat("Distancia Minkowski (p=3):", round(dist_minkowski_3, 4), "\n")
+cat("Fórmula: (sum(|x - y|^p))^(1/p)\n")
+cat("Cálculo: (3³ + 2³ + 2³ + 3³)^(1/3)\n")
+cat("        = (27 + 8 + 8 + 27)^(1/3) =", round(dist_minkowski_3, 4), "\n\n")
+
+# 4. Distancia Chebyshev (L∞)
+dist_chebyshev <- max(abs(x - y))
+cat("Distancia Chebyshev (L∞):", dist_chebyshev, "\n")
+cat("Fórmula: max(|x - y|)\n")
+cat("Cálculo: max(|2-5|, |4-2|, |1-3|, |3-6|)\n")
+cat("        = max(3, 2, 2, 3) =", dist_chebyshev, "\n\n")
+
+# Resumen comparativo
+cat("=== RESUMEN COMPARATIVO ===\n")
+dist_summary <- data.frame(
+  Métrica = c("Manhattan (L1)", "Euclídea (L2)", "Minkowski (L3)", "Chebyshev (L∞)"),
+  Valor = c(dist_manhattan, dist_euclidean, dist_minkowski_3, dist_chebyshev),
+  Interpretación = c(
+    "Suma de diferencias absolutas",
+    "Línea recta entre puntos",
+    "Intermedia entre L2 y L∞",
+    "Máxima diferencia en cualquier dimensión"
+  )
+)
+print(dist_summary)
+```
+
+**Pregunta 1**: ¿Qué relación observas entre los valores de las diferentes distancias? ¿Cuál es siempre la más pequeña y cuál la más grande?
+
+### Ejercicio 1.2: Efecto del parámetro p en Minkowski
+
+```{r minkowski-parameter}
+# Calcular distancias de Minkowski para diferentes valores de p
+p_values <- c(1, 1.5, 2, 3, 5, 10, 50, 100)
+dist_values <- sapply(p_values, function(p) {
+  (sum(abs(x - y)^p))^(1/p)
+})
+
+# Crear dataframe
+minkowski_df <- data.frame(
+  p = p_values,
+  distancia = dist_values
+)
+
+# Visualizar
+ggplot(minkowski_df, aes(x = p, y = distancia)) +
+  geom_line(color = "steelblue", size = 1) +
+  geom_point(color = "darkred", size = 3) +
+  geom_hline(yintercept = dist_chebyshev, linetype = "dashed",
+             color = "red", alpha = 0.5) +
+  annotate("text", x = 50, y = dist_chebyshev + 0.2,
+           label = "L∞ (Chebyshev)", color = "red") +
+  labs(title = "Efecto del parámetro p en la distancia de Minkowski",
+       subtitle = paste("Entre puntos x =", paste(x, collapse = ", "),
+                       "y y =", paste(y, collapse = ", ")),
+       x = "Parámetro p",
+       y = "Distancia") +
+  scale_x_log10() +
+  theme_minimal()
+
+cat("\nInterpretación:\n")
+cat("- A medida que p aumenta, la distancia converge a L∞ (Chebyshev)\n")
+cat("- p=1: Manhattan (distancia de taxi)\n")
+cat("- p=2: Euclídea (distancia más común)\n")
+cat("- p→∞: Chebyshev (máxima diferencia)\n")
+cat("- Valores grandes de p dan más peso a las diferencias grandes\n")
+```
+
+**Pregunta 2**: ¿Por qué la distancia de Minkowski converge a la distancia de Chebyshev cuando p tiende a infinito?
+
+### Ejercicio 1.2b: Distancia Coseno
+
+**Objetivo**: Comprender la distancia coseno, especialmente útil en alta dimensionalidad y text mining.
+
+```{r distancia-coseno}
+cat("=== DISTANCIA COSENO ===\n\n")
+
+# Definir vectores (pueden representar documentos, perfiles de usuario, etc.)
+doc1 <- c(3, 2, 0, 5, 0, 0, 1, 2)  # Frecuencia de 8 palabras
+doc2 <- c(2, 1, 0, 3, 0, 0, 1, 1)  # Documento similar
+doc3 <- c(0, 0, 1, 0, 2, 3, 0, 0)  # Documento diferente
+
+cat("Vectores de frecuencia de palabras:\n")
+cat("doc1:", doc1, "\n")
+cat("doc2:", doc2, "\n")
+cat("doc3:", doc3, "\n\n")
+
+# Calcular similitud coseno manualmente
+cosine_sim <- function(x, y) {
+  sum(x * y) / (sqrt(sum(x^2)) * sqrt(sum(y^2)))
+}
+
+# Calcular distancia coseno (1 - similitud)
+cosine_dist <- function(x, y) {
+  1 - cosine_sim(x, y)
+}
+
+cat("=== SIMILITUD COSENO ===\n")
+cat(sprintf("cos_sim(doc1, doc2) = %.4f (vectores similares)\n", cosine_sim(doc1, doc2)))
+cat(sprintf("cos_sim(doc1, doc3) = %.4f (vectores diferentes)\n", cosine_sim(doc1, doc3)))
+cat(sprintf("cos_sim(doc2, doc3) = %.4f (vectores diferentes)\n\n", cosine_sim(doc2, doc3)))
+
+cat("=== DISTANCIA COSENO ===\n")
+cat(sprintf("cos_dist(doc1, doc2) = %.4f\n", cosine_dist(doc1, doc2)))
+cat(sprintf("cos_dist(doc1, doc3) = %.4f\n", cosine_dist(doc1, doc3)))
+cat(sprintf("cos_dist(doc2, doc3) = %.4f\n\n", cosine_dist(doc2, doc3)))
+
+# Comparar con distancia Euclídea
+cat("=== COMPARACIÓN CON DISTANCIA EUCLÍDEA ===\n")
+cat(sprintf("eucl(doc1, doc2) = %.4f\n", sqrt(sum((doc1 - doc2)^2))))
+cat(sprintf("eucl(doc1, doc3) = %.4f\n", sqrt(sum((doc1 - doc3)^2))))
+cat(sprintf("eucl(doc2, doc3) = %.4f\n\n", sqrt(sum((doc2 - doc3)^2))))
+
+# Ejemplo con escalas diferentes (ventaja de coseno)
+cat("=== VENTAJA DE COSENO: INVARIANTE A LA ESCALA ===\n")
+doc1_scaled <- doc1 * 10  # Documento 1 escalado 10x
+cat("doc1_scaled:", doc1_scaled, "\n\n")
+
+cat("Distancia Euclídea es sensible a la escala:\n")
+cat(sprintf("  eucl(doc1, doc2) = %.4f\n", sqrt(sum((doc1 - doc2)^2))))
+cat(sprintf("  eucl(doc1_scaled, doc2) = %.4f (¡cambió mucho!)\n\n",
+            sqrt(sum((doc1_scaled - doc2)^2))))
+
+cat("Distancia Coseno es INVARIANTE a la escala:\n")
+cat(sprintf("  cos_dist(doc1, doc2) = %.4f\n", cosine_dist(doc1, doc2)))
+cat(sprintf("  cos_dist(doc1_scaled, doc2) = %.4f (¡igual!)\n\n",
+            cosine_dist(doc1_scaled, doc2)))
+
+# Usar proxy para calcular distancia coseno
+docs <- rbind(doc1, doc2, doc3)
+rownames(docs) <- c("doc1", "doc2", "doc3")
+
+dist_coseno <- proxy::dist(docs, method = "cosine")
+cat("=== MATRIZ DE DISTANCIAS COSENO ===\n")
+print(round(as.matrix(dist_coseno), 4))
+
+# Visualización
+par(mfrow = c(1, 2))
+
+# Gráfico 2D de primeras dos dimensiones
+cat("\nNOTA: El gráfico 2D muestra solo las primeras 2 dimensiones (palabras 1 y 2)\n")
+cat("de vectores de 8 dimensiones. Es una PROYECCIÓN PARCIAL para visualización.\n")
+cat("Los cálculos de distancia coseno usan TODAS las 8 dimensiones.\n\n")
+
+plot(docs[, 1], docs[, 2], pch = 19, cex = 2, col = c("red", "blue", "green"),
+     xlim = c(0, max(docs[, 1])*1.1), ylim = c(0, max(docs[, 2])*1.1),
+     xlab = "Palabra 1 (dim 1 de 8)", ylab = "Palabra 2 (dim 2 de 8)",
+     main = "Proyección 2D de vectores 8D")
+text(docs[, 1], docs[, 2], labels = rownames(docs), pos = 4)
+# Dibujar vectores desde origen
+arrows(0, 0, docs[, 1], docs[, 2], col = c("red", "blue", "green"), lwd = 2)
+legend("topright", legend = rownames(docs), col = c("red", "blue", "green"), pch = 19)
+mtext("Solo primeras 2 de 8 dimensiones", side = 3, line = 0, cex = 0.8, col = "gray40")
+
+# Ángulos entre vectores
+angle_12 <- acos(cosine_sim(doc1, doc2)) * 180 / pi
+angle_13 <- acos(cosine_sim(doc1, doc3)) * 180 / pi
+angle_23 <- acos(cosine_sim(doc2, doc3)) * 180 / pi
+
+barplot(c(angle_12, angle_13, angle_23),
+        names.arg = c("doc1-doc2", "doc1-doc3", "doc2-doc3"),
+        col = "steelblue", las = 2,
+        main = "Ángulo entre vectores",
+        ylab = "Grados (°)")
+
+par(mfrow = c(1, 1))
+
+cat("\n=== INTERPRETACIÓN DE DISTANCIA COSENO ===\n")
+cat("- Mide el ángulo entre vectores (no la magnitud)\n")
+cat("- Rango teórico: [0, 2]\n")
+cat("  · [0, 1] para vectores NO NEGATIVOS (ej: frecuencias, counts)\n")
+cat("  · [0, 2] si vectores pueden tener valores NEGATIVOS\n")
+cat("- 0: vectores idénticos en dirección (ángulo = 0°)\n")
+cat("- 1: vectores ortogonales (ángulo = 90°)\n")
+cat("- 2: vectores completamente opuestos (ángulo = 180°)\n")
+cat("\nEn NLP y text mining, típicamente [0, 1] porque frecuencias ≥ 0\n")
+cat("\n=== CUÁNDO USAR DISTANCIA COSENO ===\n")
+cat("✓ Text mining y NLP (frecuencia de palabras)\n")
+cat("✓ Sistemas de recomendación (perfiles de usuario)\n")
+cat("✓ Alta dimensionalidad con datos dispersos\n")
+cat("✓ Cuando la magnitud no importa, solo la dirección\n")
+cat("✓ Clasificación de documentos\n")
+cat("✗ No usar si la magnitud es importante\n")
+cat("✗ No apropiada para datos con valores negativos relevantes\n")
+```
+
+**Pregunta 2b**: ¿Por qué la distancia coseno es preferible a la euclídea para comparar documentos?
+
+## 1.2 Distancias en Datasets Reales
+
+### Ejercicio 1.3: Comparación de distancias con Iris
+
+```{r distancias-iris}
+# Usar solo variables numéricas
+data(iris)
+X <- iris[, 1:4]
+
+# NOTA: Aquí NO estandarizamos para observar diferencias entre métricas
+# Ver Ejercicio 1.4 para entender por qué la estandarización es crucial
+
+# Seleccionar 3 observaciones de ejemplo
+idx <- c(1, 51, 101)  # Una de cada especie
+X_sample <- X[idx, ]
+rownames(X_sample) <- paste("Obs", idx, "-", iris$Species[idx])
+
+cat("=== OBSERVACIONES SELECCIONADAS ===\n")
+print(X_sample)
+
+# Calcular diferentes distancias
+dist_euclidean <- dist(X_sample, method = "euclidean")
+dist_manhattan <- dist(X_sample, method = "manhattan")
+dist_minkowski_3 <- dist(X_sample, method = "minkowski", p = 3)
+dist_maximum <- dist(X_sample, method = "maximum")  # Chebyshev
+
+# Mostrar resultados
+cat("\n=== MATRICES DE DISTANCIA ===\n\n")
+
+cat("Distancia Euclídea:\n")
+print(round(as.matrix(dist_euclidean), 3))
+
+cat("\nDistancia Manhattan:\n")
+print(round(as.matrix(dist_manhattan), 3))
+
+cat("\nDistancia Minkowski (p=3):\n")
+print(round(as.matrix(dist_minkowski_3), 3))
+
+cat("\nDistancia Chebyshev (L∞):\n")
+print(round(as.matrix(dist_maximum), 3))
+
+# Comparar rankings
+cat("\n=== COMPARACIÓN DE RANKINGS ===\n")
+cat("¿Qué observación está más cerca de la Obs 1?\n\n")
+
+comp_df <- data.frame(
+  Métrica = c("Euclídea", "Manhattan", "Minkowski p=3", "Chebyshev"),
+  Distancia_a_Obs51 = c(
+    as.matrix(dist_euclidean)[1, 2],
+    as.matrix(dist_manhattan)[1, 2],
+    as.matrix(dist_minkowski_3)[1, 2],
+    as.matrix(dist_maximum)[1, 2]
+  ),
+  Distancia_a_Obs101 = c(
+    as.matrix(dist_euclidean)[1, 3],
+    as.matrix(dist_manhattan)[1, 3],
+    as.matrix(dist_minkowski_3)[1, 3],
+    as.matrix(dist_maximum)[1, 3]
+  )
+)
+comp_df$Más_cercano <- ifelse(comp_df$Distancia_a_Obs51 < comp_df$Distancia_a_Obs101,
+                               "Obs 51", "Obs 101")
+print(comp_df)
+```
+
+**Pregunta 3**: ¿Todas las métricas coinciden en cuál es la observación más cercana? ¿Por qué?
+
+### Ejercicio 1.4: Impacto de la Escala
+
+**Objetivo**: Demostrar por qué es crucial estandarizar datos antes de calcular distancias.
+
+```{r impacto-escala}
+# Crear datos con escalas muy diferentes
+set.seed(123)
+n <- 50
+df_sin_escalar <- data.frame(
+  altura_cm = rnorm(n, mean = 170, sd = 10),      # Escala: 150-190
+  peso_kg = rnorm(n, mean = 70, sd = 10),         # Escala: 50-90
+  edad_años = rnorm(n, mean = 30, sd = 5),        # Escala: 20-40
+  salario_miles = rnorm(n, mean = 35, sd = 10)    # Escala: 15-55
+)
+
+cat("=== ESTADÍSTICAS DESCRIPTIVAS ===\n")
+cat("\nSIN ESTANDARIZAR:\n")
+print(summary(df_sin_escalar))
+
+# Estandarizar
+df_escalado <- scale(df_sin_escalar)
+
+cat("\n\nESTANDARIZADO (media=0, sd=1):\n")
+print(summary(df_escalado))
+
+# Calcular distancias entre las primeras 5 observaciones
+idx_sample <- 1:5
+dist_sin_escalar <- dist(df_sin_escalar[idx_sample, ])
+dist_escalado <- dist(df_escalado[idx_sample, ])
+
+cat("\n=== MATRICES DE DISTANCIA EUCLÍDEA ===\n\n")
+cat("Sin estandarizar:\n")
+print(round(as.matrix(dist_sin_escalar), 2))
+
+cat("\n\nEstandarizado:\n")
+print(round(as.matrix(dist_escalado), 2))
+
+# Analizar contribución de cada variable
+cat("\n=== ANÁLISIS DE CONTRIBUCIÓN POR VARIABLE ===\n")
+cat("¿Qué variable domina la distancia sin estandarizar?\n\n")
+
+# Diferencias entre obs 1 y obs 2
+diff_12 <- df_sin_escalar[1, ] - df_sin_escalar[2, ]
+diff_squared <- diff_12^2
+contrib_percent <- as.numeric((diff_squared / sum(diff_squared)) * 100)
+
+contrib_df <- data.frame(
+  Variable = names(diff_12),
+  Diferencia = as.numeric(diff_12),
+  Diferencia_Cuadrado = as.numeric(diff_squared),
+  Contribución_Porcentaje = as.numeric(contrib_percent)
+)
+print(contrib_df)
+
+# Identificar variable dominante
+var_dominante <- names(which.max(contrib_percent))
+
+cat("\nInterpretación:\n")
+cat(sprintf("- Sin estandarizar, la variable '%s' domina la distancia (%.1f%%)\n",
+            var_dominante, max(contrib_percent)))
+cat("- Esto ocurre porque tiene la escala más grande, no porque sea más importante\n")
+cat("- La estandarización asegura que todas las variables contribuyan equitativamente\n")
+cat("- ⚠️  Variables con mayor magnitud numérica 'secuestran' la distancia\n")
+
+# Visualización
+par(mfrow = c(1, 2))
+barplot(contrib_percent, names.arg = names(df_sin_escalar),
+        col = "steelblue", las = 2,
+        main = "Contribución sin estandarizar",
+        ylab = "% de contribución a la distancia")
+
+# Para datos estandarizados
+diff_12_scaled <- df_escalado[1, ] - df_escalado[2, ]
+diff_squared_scaled <- diff_12_scaled^2
+contrib_percent_scaled <- as.numeric((diff_squared_scaled / sum(diff_squared_scaled)) * 100)
+barplot(contrib_percent_scaled, names.arg = names(df_sin_escalar),
+        col = "darkgreen", las = 2,
+        main = "Contribución estandarizado",
+        ylab = "% de contribución a la distancia")
+par(mfrow = c(1, 1))
+```
+
+**Pregunta 4**: ¿Qué problemas puede causar no estandarizar los datos antes de calcular distancias?
+
+## 1.3 Visualización de Matrices de Distancia
+
+### Ejercicio 1.5: Heatmap de distancias
+
+```{r heatmap-distancias}
+# Seleccionar una muestra del dataset iris
+set.seed(42)
+sample_idx <- c(
+  sample(which(iris$Species == "setosa"), 10),
+  sample(which(iris$Species == "versicolor"), 10),
+  sample(which(iris$Species == "virginica"), 10)
+)
+iris_sample <- iris[sample_idx, ]
+X_sample <- iris_sample[, 1:4]
+
+# Calcular matriz de distancias (estandarizada - ver Ejercicio 1.4)
+dist_matrix <- dist(scale(X_sample), method = "euclidean")
+dist_mat <- as.matrix(dist_matrix)
+
+# Crear etiquetas con especies
+row_labels <- paste0(1:30, "-", substr(iris_sample$Species, 1, 3))
+rownames(dist_mat) <- row_labels
+colnames(dist_mat) <- row_labels
+
+# Crear anotación de especies
+annotation_row <- data.frame(
+  Especie = iris_sample$Species
+)
+rownames(annotation_row) <- row_labels
+
+# Heatmap con clustering jerárquico
+# NOTA: pheatmap aplica clustering jerárquico por defecto para reordenar
+# las observaciones y agrupar las más similares. Esto facilita la visualización.
+pheatmap(dist_mat,
+         color = colorRampPalette(c("white", "yellow", "red"))(100),
+         annotation_row = annotation_row,
+         annotation_col = annotation_row,
+         show_rownames = TRUE,
+         show_colnames = FALSE,
+         main = "Matriz de Distancias Euclídeas - Iris Dataset",
+         fontsize_row = 6,
+         clustering_distance_rows = "euclidean",
+         clustering_distance_cols = "euclidean",
+         clustering_method = "complete")
+
+cat("\nInterpretación del heatmap:\n")
+cat("- Colores claros (amarillo/blanco) → Distancias pequeñas (observaciones similares)\n")
+cat("- Colores oscuros (rojo) → Distancias grandes (observaciones diferentes)\n")
+cat("- Las filas/columnas están REORDENADAS por clustering jerárquico\n")
+cat("- Los bloques en la diagonal principal muestran que las observaciones\n")
+cat("  de la misma especie tienden a ser más similares entre sí\n")
+cat("- El dendrograma lateral muestra la jerarquía de agrupamiento\n")
+```
+
+# Parte 2: Distancias para Datos Binarios
+
+## 2.1 Distancias Binarias
+
+### Ejercicio 2.1: Coeficientes de similitud para datos binarios
+
+**Objetivo**: Calcular y comparar diferentes medidas de similitud binaria.
+
+```{r distancias-binarias-manual}
+# Ejemplo: Presencia/ausencia de síntomas en pacientes
+# 1 = presente, 0 = ausente
+paciente_A <- c(1, 1, 0, 1, 0, 0, 1, 1)
+paciente_B <- c(1, 1, 1, 0, 0, 0, 1, 0)
+paciente_C <- c(0, 0, 0, 0, 1, 1, 0, 0)
+
+sintomas <- c("Fiebre", "Tos", "Dolor_cabeza", "Fatiga",
+              "Náuseas", "Mareos", "Dolor_garganta", "Congestión")
+
+cat("=== DATOS BINARIOS: PRESENCIA DE SÍNTOMAS ===\n\n")
+sintomas_df <- data.frame(
+  Síntoma = sintomas,
+  Paciente_A = paciente_A,
+  Paciente_B = paciente_B,
+  Paciente_C = paciente_C
+)
+print(sintomas_df)
+
+# Función para calcular tabla de contingencia 2x2
+tabla_2x2 <- function(x, y) {
+  a <- sum(x == 1 & y == 1)  # Ambos tienen el atributo
+  b <- sum(x == 1 & y == 0)  # Solo x tiene el atributo
+  c <- sum(x == 0 & y == 1)  # Solo y tiene el atributo
+  d <- sum(x == 0 & y == 0)  # Ninguno tiene el atributo
+  return(c(a = a, b = b, c = c, d = d))
+}
+
+# Calcular tablas 2x2
+cat("\n=== TABLAS DE CONTINGENCIA 2x2 ===\n\n")
+
+tab_AB <- tabla_2x2(paciente_A, paciente_B)
+cat("Paciente A vs Paciente B:\n")
+cat(sprintf("  a (1,1): %d  |  b (1,0): %d\n", tab_AB["a"], tab_AB["b"]))
+cat(sprintf("  c (0,1): %d  |  d (0,0): %d\n\n", tab_AB["c"], tab_AB["d"]))
+
+tab_AC <- tabla_2x2(paciente_A, paciente_C)
+cat("Paciente A vs Paciente C:\n")
+cat(sprintf("  a (1,1): %d  |  b (1,0): %d\n", tab_AC["a"], tab_AC["b"]))
+cat(sprintf("  c (0,1): %d  |  d (0,0): %d\n\n", tab_AC["c"], tab_AC["d"]))
+
+# Calcular diferentes coeficientes de similitud
+coef_jaccard <- function(x, y) {
+  tab <- tabla_2x2(x, y)
+  tab["a"] / (tab["a"] + tab["b"] + tab["c"])
+}
+
+coef_simple_matching <- function(x, y) {
+  tab <- tabla_2x2(x, y)
+  (tab["a"] + tab["d"]) / sum(tab)
+}
+
+coef_dice <- function(x, y) {
+  tab <- tabla_2x2(x, y)
+  (2 * tab["a"]) / (2 * tab["a"] + tab["b"] + tab["c"])
+}
+
+coef_rogers_tanimoto <- function(x, y) {
+  tab <- tabla_2x2(x, y)
+  (tab["a"] + tab["d"]) / (tab["a"] + 2*(tab["b"] + tab["c"]) + tab["d"])
+}
+
+cat("=== COEFICIENTES DE SIMILITUD ===\n\n")
+
+# A vs B
+cat("Paciente A vs Paciente B:\n")
+cat(sprintf("  Jaccard:           %.4f\n", coef_jaccard(paciente_A, paciente_B)))
+cat(sprintf("  Simple Matching:   %.4f\n", coef_simple_matching(paciente_A, paciente_B)))
+cat(sprintf("  Dice:              %.4f\n", coef_dice(paciente_A, paciente_B)))
+cat(sprintf("  Rogers-Tanimoto:   %.4f\n\n", coef_rogers_tanimoto(paciente_A, paciente_B)))
+
+# A vs C
+cat("Paciente A vs Paciente C:\n")
+cat(sprintf("  Jaccard:           %.4f\n", coef_jaccard(paciente_A, paciente_C)))
+cat(sprintf("  Simple Matching:   %.4f\n", coef_simple_matching(paciente_A, paciente_C)))
+cat(sprintf("  Dice:              %.4f\n", coef_dice(paciente_A, paciente_C)))
+cat(sprintf("  Rogers-Tanimoto:   %.4f\n\n", coef_rogers_tanimoto(paciente_A, paciente_C)))
+
+cat("=== INTERPRETACIÓN ===\n")
+cat("\nCoeficiente de Jaccard:\n")
+cat("- Solo considera coincidencias positivas (1,1)\n")
+cat("- Ignora las ausencias conjuntas (0,0)\n")
+cat("- Útil cuando la ausencia no es informativa\n")
+
+cat("\nSimple Matching:\n")
+cat("- Considera tanto coincidencias positivas (1,1) como negativas (0,0)\n")
+cat("- Útil cuando las ausencias son tan informativas como las presencias\n")
+
+cat("\nCoeficiente de Dice:\n")
+cat("- Similar a Jaccard pero da doble peso a las coincidencias positivas\n")
+
+cat("\nRogers-Tanimoto:\n")
+cat("- Penaliza más las discordancias que Simple Matching\n")
+
+# Convertir similitud a distancia
+cat("\n=== CONVERSIÓN A DISTANCIA ===\n")
+cat("Distancia = 1 - Similitud\n\n")
+
+cat("Distancias (Jaccard) A-B y A-C:\n")
+cat(sprintf("  d(A,B) = %.4f\n", 1 - coef_jaccard(paciente_A, paciente_B)))
+cat(sprintf("  d(A,C) = %.4f\n", 1 - coef_jaccard(paciente_A, paciente_C)))
+cat("\nInterpretación: El paciente C es más diferente de A que el paciente B\n")
+```
+
+**Pregunta 5**: ¿Cuándo usarías Jaccard en lugar de Simple Matching?
+
+### Ejercicio 2.2: Aplicación con dataset real
+
+```{r distancias-binarias-dataset}
+# Crear dataset binario de ejemplo: características de películas
+set.seed(123)
+peliculas <- data.frame(
+  Accion = c(1, 1, 0, 0, 1, 0, 1, 1),
+  Comedia = c(0, 1, 1, 1, 0, 1, 0, 0),
+  Drama = c(0, 0, 1, 1, 0, 1, 1, 0),
+  Sci_Fi = c(1, 1, 0, 0, 1, 0, 1, 1),
+  Romance = c(0, 1, 1, 0, 0, 1, 0, 0),
+  Thriller = c(1, 0, 0, 1, 1, 0, 1, 1)
+)
+rownames(peliculas) <- paste("Pelicula", 1:8)
+
+cat("=== GÉNEROS DE PELÍCULAS (1=presente, 0=ausente) ===\n")
+print(peliculas)
+
+# Calcular distancias con Jaccard verdadero usando proxy
+cat("\nNOTA: Usamos proxy::dist() con method='Jaccard' para calcular\n")
+cat("la distancia de Jaccard correcta. dist() con method='binary'\n")
+cat("calcula una métrica binaria diferente.\n\n")
+
+# Cargar proxy si no está cargado
+if (!require("proxy", quietly = TRUE)) {
+  install.packages("proxy")
+  library(proxy)
+}
+
+# Calcular distancia de Jaccard correcta
+dist_jaccard <- proxy::dist(peliculas, method = "Jaccard", by_rows = TRUE)
+
+cat("=== MATRIZ DE DISTANCIAS (Jaccard) ===\n")
+print(round(as.matrix(dist_jaccard), 3))
+
+# Visualizar sin clustering (mantener orden original de películas)
+pheatmap(as.matrix(dist_jaccard),
+         color = colorRampPalette(c("white", "orange", "darkred"))(100),
+         main = "Distancias de Jaccard entre Películas",
+         display_numbers = TRUE,
+         number_format = "%.2f",
+         fontsize_number = 8,
+         cluster_rows = FALSE,
+         cluster_cols = FALSE)  # Sin reordenar para ver índices originales
+
+# Encontrar las películas más similares
+dist_mat <- as.matrix(dist_jaccard)
+diag(dist_mat) <- NA  # Excluir diagonal
+min_dist <- which(dist_mat == min(dist_mat, na.rm = TRUE), arr.ind = TRUE)[1,]
+
+cat("\n=== PELÍCULAS MÁS SIMILARES ===\n")
+cat(sprintf("Las películas más similares son: %s y %s\n",
+            rownames(dist_mat)[min_dist[1]],
+            rownames(dist_mat)[min_dist[2]]))
+cat(sprintf("Distancia: %.4f\n", dist_mat[min_dist[1], min_dist[2]]))
+cat("\nGéneros compartidos:\n")
+print(peliculas[c(min_dist[1], min_dist[2]), ])
+```
+
+# Parte 3: Distancias para Datos Categóricos
+
+## 3.1 Distancia de Hamming
+
+### Ejercicio 3.1: Distancia de Hamming
+
+```{r distancia-hamming}
+# Ejemplo: Preferencias de clientes
+clientes <- data.frame(
+  Color_favorito = c("Rojo", "Azul", "Verde", "Rojo", "Azul"),
+  Talla = c("M", "L", "M", "S", "L"),
+  Marca_preferida = c("A", "B", "A", "C", "B"),
+  Estilo = c("Casual", "Formal", "Deportivo", "Casual", "Formal")
+)
+rownames(clientes) <- paste("Cliente", 1:5)
+
+cat("=== DATOS CATEGÓRICOS: PREFERENCIAS DE CLIENTES ===\n")
+print(clientes)
+
+# Función para calcular distancia de Hamming
+hamming_distance <- function(x, y) {
+  sum(x != y)
+}
+
+# Calcular matriz de distancias de Hamming
+n <- nrow(clientes)
+dist_hamming <- matrix(0, n, n)
+for(i in 1:n) {
+  for(j in 1:n) {
+    dist_hamming[i, j] <- hamming_distance(clientes[i, ], clientes[j, ])
+  }
+}
+rownames(dist_hamming) <- rownames(clientes)
+colnames(dist_hamming) <- rownames(clientes)
+
+cat("\n=== MATRIZ DE DISTANCIAS DE HAMMING ===\n")
+print(dist_hamming)
+
+cat("\nInterpretación:\n")
+cat("- La distancia de Hamming cuenta el número de atributos diferentes\n")
+cat("- Valor máximo posible:", ncol(clientes), "(todas las variables difieren)\n")
+cat("- Valor mínimo: 0 (observaciones idénticas)\n")
+
+# Normalizar distancias (dividir por número de variables)
+dist_hamming_norm <- dist_hamming / ncol(clientes)
+cat("\n=== DISTANCIAS DE HAMMING NORMALIZADAS (0-1) ===\n")
+print(round(dist_hamming_norm, 3))
+
+# Visualizar con clustering para agrupar clientes similares
+pheatmap(dist_hamming,
+         color = colorRampPalette(c("white", "lightblue", "darkblue"))(100),
+         main = "Distancias de Hamming - Preferencias de Clientes",
+         display_numbers = TRUE,
+         cluster_rows = TRUE,
+         cluster_cols = TRUE,
+         clustering_method = "complete")  # Agrupa clientes con preferencias similares
+```
+
+**Pregunta 6**: ¿Qué limitación tiene la distancia de Hamming para variables ordinales?
+
+# Parte 4: Distancias para Datos Mixtos
+
+## 4.1 Distancia de Gower
+
+### Ejercicio 4.1: Distancia de Gower para datos mixtos
+
+**Objetivo**: Calcular distancias cuando tenemos variables de diferentes tipos.
+
+```{r distancia-gower}
+# Crear dataset con variables mixtas
+set.seed(123)
+datos_mixtos <- data.frame(
+  edad = c(25, 30, 25, 45, 50, 28, 35),
+  salario = c(30000, 45000, 32000, 65000, 70000, 35000, 50000),
+  educacion = factor(c("Grado", "Master", "Grado", "PhD", "PhD", "Master", "Grado"),
+                     levels = c("Grado", "Master", "PhD"), ordered = TRUE),
+  ciudad = factor(c("Madrid", "Barcelona", "Madrid", "Valencia",
+                    "Barcelona", "Madrid", "Valencia")),
+  tiene_coche = factor(c("Sí", "No", "Sí", "Sí", "No", "No", "Sí"))
+)
+rownames(datos_mixtos) <- paste("Persona", 1:7)
+
+cat("=== DATASET CON VARIABLES MIXTAS ===\n")
+print(datos_mixtos)
+
+cat("\nTipos de variables:\n")
+cat("- edad: numérica continua\n")
+cat("- salario: numérica continua\n")
+cat("- educacion: ordinal\n")
+cat("- ciudad: nominal\n")
+cat("- tiene_coche: binaria\n")
+
+# Calcular distancia de Gower
+dist_gower <- daisy(datos_mixtos, metric = "gower")
+
+cat("\n=== MATRIZ DE DISTANCIAS DE GOWER ===\n")
+print(round(as.matrix(dist_gower), 3))
+
+cat("\n=== INTERPRETACIÓN DE GOWER ===\n")
+cat("La distancia de Gower:\n")
+cat("1. Normaliza todas las variables al rango [0,1]\n")
+cat("2. Para variables numéricas: d = |x-y| / rango\n")
+cat("3. Para variables categóricas: d = 0 si iguales, 1 si diferentes\n")
+cat("4. Para variables ordinales: considera el orden\n")
+cat("5. Promedia las distancias de todas las variables\n")
+
+# Análisis detallado de un par de observaciones
+cat("\n=== ANÁLISIS DETALLADO: Persona 1 vs Persona 2 ===\n")
+print(datos_mixtos[1:2, ])
+
+cat("\nNOTA IMPORTANTE: El cálculo siguiente es una APROXIMACIÓN educativa.\n")
+cat("La función daisy() usa un algoritmo más sofisticado que:\n")
+cat("- Puede ponderar variables de forma diferente\n")
+cat("- Maneja valores faltantes (NA) de forma especial\n")
+cat("- Para ordinales, considera la estructura de niveles\n\n")
+
+# Calcular contribución de cada variable (aproximación simplificada)
+d_edad <- abs(datos_mixtos$edad[1] - datos_mixtos$edad[2]) /
+          (max(datos_mixtos$edad) - min(datos_mixtos$edad))
+d_salario <- abs(datos_mixtos$salario[1] - datos_mixtos$salario[2]) /
+             (max(datos_mixtos$salario) - min(datos_mixtos$salario))
+
+# Para ordinales, daisy() considera el número de niveles
+d_educacion <- ifelse(datos_mixtos$educacion[1] == datos_mixtos$educacion[2], 0,
+                      abs(as.numeric(datos_mixtos$educacion[1]) -
+                          as.numeric(datos_mixtos$educacion[2])) /
+                        (nlevels(datos_mixtos$educacion) - 1))
+
+d_ciudad <- ifelse(datos_mixtos$ciudad[1] == datos_mixtos$ciudad[2], 0, 1)
+d_coche <- ifelse(datos_mixtos$tiene_coche[1] == datos_mixtos$tiene_coche[2], 0, 1)
+
+contrib <- data.frame(
+  Variable = c("edad", "salario", "educacion", "ciudad", "tiene_coche"),
+  Distancia_parcial = round(c(d_edad, d_salario, d_educacion, d_ciudad, d_coche), 3),
+  Tipo = c("Numérica", "Numérica", "Ordinal", "Nominal", "Binaria")
+)
+print(contrib)
+
+cat(sprintf("\nDistancia total (promedio aproximado): %.3f\n", mean(contrib$Distancia_parcial)))
+cat(sprintf("Distancia de Gower real (daisy): %.3f\n", as.matrix(dist_gower)[1, 2]))
+
+if(abs(mean(contrib$Distancia_parcial) - as.matrix(dist_gower)[1, 2]) > 0.01) {
+  cat("\n⚠️  Nota: La diferencia entre ambos valores refleja las diferencias\n")
+  cat("   en el tratamiento de variables ordinales y posibles ponderaciones.\n")
+}
+
+# Visualizar matriz de distancias sin reordenar (orden original)
+pheatmap(as.matrix(dist_gower),
+         color = colorRampPalette(c("white", "purple", "black"))(100),
+         main = "Distancia de Gower - Datos Mixtos",
+         display_numbers = TRUE,
+         number_format = "%.2f",
+         fontsize_number = 9,
+         cluster_rows = FALSE,
+         cluster_cols = FALSE)  # Sin clustering para mantener orden original
+```
+
+**Pregunta 7**: ¿Por qué es preferible usar Gower en lugar de distancia euclídea para datos mixtos?
+
+### Ejercicio 4.2: Comparación de métodos para datos mixtos
+
+```{r comparacion-mixtos}
+# Comparar diferentes enfoques
+
+# 1. Distancia de Gower (enfoque correcto)
+dist_gower <- daisy(datos_mixtos, metric = "gower")
+
+# 2. Convertir todo a numérico (enfoque incorrecto pero común)
+cat("=== ⚠️ ADVERTENCIA: ENFOQUE INCORRECTO ===\n")
+cat("El siguiente código muestra un ERROR COMÚN: convertir variables\n")
+cat("categóricas a numéricas arbitrariamente.\n\n")
+cat("PROBLEMAS de este enfoque:\n")
+cat("1. Introduce relaciones espurias: 'Madrid'=1, 'Barcelona'=2, 'Valencia'=3\n")
+cat("   implica que Barcelona está 'entre' Madrid y Valencia (¡no tiene sentido!)\n")
+cat("2. La distancia numérica entre categorías es arbitraria y sin significado\n")
+cat("3. Variables nominales se tratan como si fueran ordinales o continuas\n")
+cat("4. Los resultados serán INCORRECTOS y NO INTERPRETABLES\n\n")
+cat("¡NUNCA hagas esto en un análisis real!\n\n")
+
+datos_numericos <- datos_mixtos
+datos_numericos$educacion <- as.numeric(datos_numericos$educacion)
+datos_numericos$ciudad <- as.numeric(datos_numericos$ciudad)  # ¡INCORRECTO!
+datos_numericos$tiene_coche <- as.numeric(factor(datos_numericos$tiene_coche))
+dist_euclidean_naive <- dist(scale(datos_numericos))
+
+cat("=== COMPARACIÓN DE ENFOQUES (Correcto vs Incorrecto) ===\n\n")
+
+# Comparar rankings de similitud para Persona 1
+p1_gower <- as.matrix(dist_gower)[1, -1]
+p1_euclidean <- as.matrix(dist_euclidean_naive)[1, -1]
+
+ranking_df <- data.frame(
+  Persona = names(p1_gower),
+  Dist_Gower = round(p1_gower, 3),
+  Rank_Gower = rank(p1_gower),
+  Dist_Euclidean_Naive = round(p1_euclidean, 3),
+  Rank_Euclidean = rank(p1_euclidean)
+)
+ranking_df <- ranking_df[order(ranking_df$Rank_Gower), ]
+
+cat("Ranking de similitud con Persona 1:\n")
+print(ranking_df)
+
+cat("\n=== CONCLUSIONES IMPORTANTES ===\n")
+cat("1. Los rankings pueden diferir significativamente entre métodos\n")
+cat("2. Convertir categóricas a numéricas arbitrariamente:\n")
+cat("   ✗ Introduce relaciones artificiales sin significado\n")
+cat("   ✗ Produce resultados incorrectos e ininterpretables\n")
+cat("   ✗ Viola los supuestos de las distancias numéricas\n")
+cat("3. Gower maneja correctamente la heterogeneidad de tipos:\n")
+cat("   ✓ Respeta la naturaleza nominal/ordinal/numérica de cada variable\n")
+cat("   ✓ Normaliza adecuadamente para comparabilidad\n")
+cat("   ✓ Produce distancias interpretables y válidas\n")
+cat("4. REGLA DE ORO: Siempre usa el método apropiado para tus datos\n")
+```
+
+## 4.3 Manejo de Valores Faltantes
+
+### Ejercicio 4.3: Distancias con datos incompletos
+
+**Objetivo**: Aprender cómo manejar valores faltantes (NA) al calcular distancias.
+
+```{r valores-faltantes}
+cat("=== MANEJO DE VALORES FALTANTES ===\n\n")
+
+# Crear dataset con valores faltantes
+set.seed(123)
+datos_na <- data.frame(
+  edad = c(25, 30, NA, 45, 50, 28),
+  salario = c(30000, NA, 32000, 65000, 70000, 35000),
+  horas_trabajo = c(40, 35, 38, NA, 45, 40),
+  años_exp = c(2, 5, 3, 15, NA, 4)
+)
+rownames(datos_na) <- paste("Empleado", 1:6)
+
+cat("Dataset con valores faltantes (NA):\n")
+print(datos_na)
+
+cat("\n=== ESTRATEGIAS PARA MANEJAR NAs ===\n\n")
+
+# Estrategia 1: Eliminar observaciones con NA (list-wise deletion)
+cat("1. ELIMINACIÓN COMPLETA (list-wise deletion)\n")
+datos_completos <- na.omit(datos_na)
+cat("Observaciones restantes:", nrow(datos_completos), "de", nrow(datos_na), "\n")
+cat("⚠️  Pérdida de información:", nrow(datos_na) - nrow(datos_completos), "observaciones\n\n")
+
+if(nrow(datos_completos) > 1) {
+  dist_completos <- dist(scale(datos_completos))
+  cat("Distancias entre observaciones completas:\n")
+  print(round(as.matrix(dist_completos), 2))
+}
+
+# Estrategia 2: Imputación simple (media)
+cat("\n2. IMPUTACIÓN CON LA MEDIA\n")
+datos_imputados <- datos_na
+for(col in names(datos_imputados)) {
+  media <- mean(datos_imputados[[col]], na.rm = TRUE)
+  datos_imputados[[col]][is.na(datos_imputados[[col]])] <- media
+}
+cat("Datos después de imputación:\n")
+print(round(datos_imputados, 0))
+
+dist_imputados <- dist(scale(datos_imputados))
+cat("\nDistancias con imputación:\n")
+print(round(as.matrix(dist_imputados), 2))
+
+# Estrategia 3: Distancia de Gower (maneja NAs automáticamente)
+cat("\n3. DISTANCIA DE GOWER (maneja NAs automáticamente)\n")
+cat("Gower ajusta el cálculo excluyendo pares de variables con NA\n\n")
+
+dist_gower_na <- daisy(datos_na, metric = "gower")
+cat("Distancias de Gower con NAs:\n")
+print(round(as.matrix(dist_gower_na), 3))
+
+cat("\n=== CÓMO GOWER MANEJA NAs ===\n")
+cat("Para cada par de observaciones (i, j):\n")
+cat("1. Calcula distancia solo para variables presentes en AMBAS\n")
+cat("2. Si variable es NA en i o j, la excluye del promedio\n")
+cat("3. Promedia sobre las variables disponibles\n")
+cat("4. Si NO hay variables en común → distancia = NA\n\n")
+
+# Ejemplo detallado
+cat("Ejemplo: Empleado 1 vs Empleado 3\n")
+cat("Empleado 1: edad=25, salario=30000, horas=40, exp=2\n")
+cat("Empleado 3: edad=NA, salario=32000, horas=38, exp=3\n")
+cat("Variables usadas: salario, horas_trabajo, años_exp (3 de 4)\n")
+cat(sprintf("Distancia Gower: %.3f\n\n", as.matrix(dist_gower_na)[1, 3]))
+
+# Comparación visual
+cat("=== COMPARACIÓN DE ESTRATEGIAS ===\n\n")
+
+comparison_df <- data.frame(
+  Estrategia = c("Eliminación completa", "Imputación media", "Gower con NAs"),
+  Observaciones = c(nrow(datos_completos), nrow(datos_na), nrow(datos_na)),
+  Ventajas = c(
+    "Simple, sin sesgo si NA es aleatorio",
+    "Mantiene todas las observaciones",
+    "No asume valores, usa info disponible"
+  ),
+  Desventajas = c(
+    "Pérdida de información, reduce muestra",
+    "Introduce sesgo, subestima varianza",
+    "Complejidad computacional"
+  )
+)
+print(comparison_df)
+
+cat("\n=== RECOMENDACIONES ===\n")
+cat("1. Si < 5% NAs aleatorios → Eliminación completa\n")
+cat("2. Si NAs no aleatorios → Imputación sofisticada (kNN, MICE)\n")
+cat("3. Para datos mixtos con NAs → Gower\n")
+cat("4. Para alta dimensionalidad → Métodos especializados\n")
+cat("5. NUNCA ignorar NAs sin justificación\n")
+```
+
+**Pregunta 9**: ¿Qué problemas puede causar la imputación con la media en el cálculo de distancias?
+
+## 4.4 Maldición de la Dimensionalidad
+
+### Ejercicio 4.4: Efecto de la dimensionalidad en distancias
+
+**Objetivo**: Entender cómo la alta dimensionalidad afecta a las distancias.
+
+```{r maldicion-dimensionalidad}
+cat("=== MALDICIÓN DE LA DIMENSIONALIDAD ===\n\n")
+
+set.seed(123)
+
+# Generar datos aleatorios en diferentes dimensiones
+dimensiones <- c(2, 10, 50, 100, 500, 1000)
+resultados <- list()
+
+for(d in dimensiones) {
+  # Generar 100 puntos aleatorios en d dimensiones
+  datos_d <- matrix(rnorm(100 * d), nrow = 100, ncol = d)
+
+  # Calcular todas las distancias
+  dist_matrix <- as.matrix(dist(datos_d))
+
+  # Extraer distancias (sin diagonal)
+  distancias <- dist_matrix[upper.tri(dist_matrix)]
+
+  # Estadísticas
+  resultados[[as.character(d)]] <- data.frame(
+    Dimensiones = d,
+    Media = mean(distancias),
+    SD = sd(distancias),
+    Min = min(distancias),
+    Max = max(distancias),
+    CV = sd(distancias) / mean(distancias)  # Coef. variación
+  )
+}
+
+resultados_df <- do.call(rbind, resultados)
+rownames(resultados_df) <- NULL
+
+cat("=== ESTADÍSTICAS DE DISTANCIAS POR DIMENSIÓN ===\n")
+print(round(resultados_df, 4))
+
+cat("\n=== OBSERVACIONES CLAVE ===\n")
+cat("1. Media de distancias AUMENTA con dimensiones\n")
+cat("2. Coeficiente de variación (CV) DISMINUYE\n")
+cat("3. En alta dimensión, ¡todos los puntos están lejos y equidistantes!\n\n")
+
+# Visualizar
+par(mfrow = c(2, 2))
+
+# Gráfico 1: Media de distancias
+plot(resultados_df$Dimensiones, resultados_df$Media,
+     type = "b", pch = 19, col = "steelblue",
+     log = "x",
+     xlab = "Dimensiones (log scale)", ylab = "Distancia media",
+     main = "Media de distancias vs Dimensiones")
+grid()
+
+# Gráfico 2: Coeficiente de variación
+plot(resultados_df$Dimensiones, resultados_df$CV,
+     type = "b", pch = 19, col = "darkred",
+     log = "x",
+     xlab = "Dimensiones (log scale)", ylab = "Coeficiente de variación",
+     main = "CV vs Dimensiones\n(menor CV = puntos más homogéneos)")
+grid()
+
+# Gráfico 3: Distribución en 2D
+datos_2d <- matrix(rnorm(100 * 2), nrow = 100, ncol = 2)
+dist_2d <- as.matrix(dist(datos_2d))
+hist(dist_2d[upper.tri(dist_2d)], breaks = 30, col = "lightblue",
+     main = "Distribución de distancias (2D)",
+     xlab = "Distancia", freq = FALSE)
+lines(density(dist_2d[upper.tri(dist_2d)]), col = "blue", lwd = 2)
+
+# Gráfico 4: Distribución en 1000D
+datos_1000d <- matrix(rnorm(100 * 1000), nrow = 100, ncol = 1000)
+dist_1000d <- as.matrix(dist(datos_1000d))
+hist(dist_1000d[upper.tri(dist_1000d)], breaks = 30, col = "lightcoral",
+     main = "Distribución de distancias (1000D)",
+     xlab = "Distancia", freq = FALSE)
+lines(density(dist_1000d[upper.tri(dist_1000d)]), col = "red", lwd = 2)
+
+par(mfrow = c(1, 1))
+
+cat("\n=== ¿POR QUÉ OCURRE ESTO? ===\n")
+cat("En alta dimensión:\n")
+cat("1. El volumen del espacio crece exponencialmente\n")
+cat("2. Los datos se vuelven DISPERSOS (sparse)\n")
+cat("3. La mayoría del volumen está en las 'esquinas' del hipervolumen\n")
+cat("4. La distancia al punto más cercano ≈ distancia al más lejano\n")
+cat("5. El concepto de 'vecindario' pierde significado\n\n")
+
+cat("=== CONSECUENCIAS PARA MACHINE LEARNING ===\n")
+cat("✗ K-NN se vuelve ineficaz (todos son 'vecinos')\n")
+cat("✗ Clustering puede fallar (no hay clusters claros)\n")
+cat("✗ Se requieren MUCHOS más datos para el mismo nivel de densidad\n")
+cat("✗ Distancia Euclídea pierde poder discriminativo\n\n")
+
+cat("=== SOLUCIONES ===\n")
+cat("✓ Reducción de dimensionalidad (PCA, t-SNE, UMAP)\n")
+cat("✓ Selección de características relevantes\n")
+cat("✓ Usar distancias alternativas (Manhattan, Coseno)\n")
+cat("✓ Métodos específicos para alta dimensión\n")
+cat("✓ Regularización en modelos\n")
+```
+
+**Pregunta 10**: ¿Por qué la distancia Manhattan puede ser preferible a la Euclídea en alta dimensionalidad?
+
+# Parte 5: Ejercicios Integradores
+
+## 5.1 Análisis Comparativo de Distancias
+
+### Ejercicio 5.1: ¿Qué distancia elegir?
+
+```{r decision-distancia}
+cat("=== GUÍA DE DECISIÓN: ¿QUÉ DISTANCIA USAR? ===\n\n")
+
+decision_tree <- "
+TIPO DE DATOS
+│
+├─ TODOS CONTINUOS
+│  │
+│  ├─ Escalas similares
+│  │  └─ Euclidea, Manhattan, Minkowski
+│  │
+│  ├─ Escalas diferentes
+│  │  └─ Estandarizar primero, luego Euclídea
+│  │
+│  ├─ Presencia de outliers
+│  │  └─ Manhattan o Chebyshev (más robustas)
+│  │
+│  └─ Alta dimensionalidad
+│     └─ Manhattan o coseno (evitar maldición dimensionalidad)
+│
+├─ TODOS BINARIOS
+│  │
+│  ├─ Ausencia no informativa (ej: presencia de palabras)
+│  │  └─ Jaccard
+│  │
+│  └─ Ausencia informativa (ej: síntomas médicos)
+│     └─ Simple Matching
+│
+├─ TODOS CATEGÓRICOS
+│  │
+│  ├─ Nominales
+│  │  └─ Hamming
+│  │
+│  └─ Ordinales
+│     └─ Convertir a rangos, usar métrica numérica
+│
+└─ MIXTOS (continuos + categóricos + binarios)
+   └─ Gower
+"
+
+cat(decision_tree)
+
+# Ejemplo de aplicación
+cat("\n\n=== CASOS DE USO ===\n\n")
+
+casos <- data.frame(
+  Contexto = c(
+    "Análisis de clientes (edad, ingresos, género, ciudad)",
+    "Clasificación de documentos (frecuencia de palabras)",
+    "Diagnóstico médico (síntomas presentes/ausentes)",
+    "Análisis de genes (expresión génica)",
+    "Recomendación de productos (características mixtas)"
+  ),
+  Tipo_Datos = c("Mixtos", "Continuos (alta dim)", "Binarios",
+                 "Continuos", "Mixtos"),
+  Distancia_Recomendada = c("Gower", "Coseno o Manhattan",
+                            "Jaccard", "Euclídea (estandarizada)", "Gower")
+)
+
+print(casos)
+```
+
+## 5.2 Proyecto Final: Análisis Completo
+
+### Ejercicio 5.2: Análisis de dataset mtcars
+
+```{r proyecto-final-distancias}
+# Cargar y explorar datos
+data(mtcars)
+cat("=== DATASET: MTCARS ===\n")
+cat("Características de 32 automóviles\n\n")
+str(mtcars)
+
+# Seleccionar variables relevantes
+# Continuos: mpg, disp, hp, wt, qsec
+# Discretas (trataremos como categóricas): cyl, vs, am, gear, carb
+mtcars_mixed <- mtcars
+mtcars_mixed$cyl <- factor(mtcars_mixed$cyl)
+mtcars_mixed$vs <- factor(mtcars_mixed$vs)
+mtcars_mixed$am <- factor(mtcars_mixed$am)
+mtcars_mixed$gear <- factor(mtcars_mixed$gear)
+mtcars_mixed$carb <- factor(mtcars_mixed$carb)
+
+# 1. Distancia Euclídea (solo variables continuas)
+vars_continuas <- c("mpg", "disp", "hp", "wt", "qsec", "drat")
+dist_euclidean_std <- dist(scale(mtcars[, vars_continuas]))
+
+# 2. Distancia de Gower (todas las variables)
+dist_gower_all <- daisy(mtcars_mixed, metric = "gower")
+
+cat("\n=== COMPARACIÓN DE MÉTODOS ===\n")
+
+# Seleccionar 5 coches emblemáticos
+coches_emblematicos <- c("Mazda RX4", "Datsun 710", "Hornet 4 Drive",
+                         "Merc 240D", "Porsche 914-2")
+idx <- which(rownames(mtcars) %in% coches_emblematicos)
+
+cat("\nCoches seleccionados:\n")
+print(mtcars[idx, c("mpg", "cyl", "hp", "wt")])
+
+# Matriz de distancias Euclídea
+cat("\n--- Distancia Euclídea (solo variables continuas) ---\n")
+dist_euc_sub <- as.matrix(dist_euclidean_std)[idx, idx]
+rownames(dist_euc_sub) <- coches_emblematicos
+colnames(dist_euc_sub) <- coches_emblematicos
+print(round(dist_euc_sub, 2))
+
+# Matriz de distancias Gower
+cat("\n--- Distancia de Gower (todas las variables) ---\n")
+dist_gow_sub <- as.matrix(dist_gower_all)[idx, idx]
+rownames(dist_gow_sub) <- coches_emblematicos
+colnames(dist_gow_sub) <- coches_emblematicos
+print(round(dist_gow_sub, 2))
+
+# Visualizar ambas
+par(mfrow = c(1, 2))
+pheatmap(dist_euc_sub,
+         main = "Euclídea (continuas)",
+         display_numbers = TRUE,
+         number_format = "%.2f",
+         fontsize_number = 8,
+         cluster_rows = FALSE,
+         cluster_cols = FALSE,
+         silent = TRUE)
+
+pheatmap(dist_gow_sub,
+         main = "Gower (todas)",
+         display_numbers = TRUE,
+         number_format = "%.2f",
+         fontsize_number = 8,
+         cluster_rows = FALSE,
+         cluster_cols = FALSE,
+         silent = TRUE)
+par(mfrow = c(1, 1))
+
+cat("\n=== CONCLUSIONES DEL ANÁLISIS ===\n")
+cat("1. Las distancias Euclídea y Gower pueden dar resultados diferentes\n")
+cat("2. Gower incorpora información de variables categóricas (cyl, vs, am, etc.)\n")
+cat("3. La elección de la distancia afecta a los resultados de clustering\n")
+cat("4. Es crucial entender las propiedades de tus datos antes de elegir\n")
+```
+
+**Pregunta 8**: ¿Qué método prefieres para este dataset y por qué?
+
+# Recursos Adicionales
+
+## Librerías útiles en R
+
+- `proxy`: Implementa 50+ medidas de distancia y similitud
+- `cluster`: Contiene `daisy()` para distancia de Gower
+- `gower`: Implementación eficiente de distancia de Gower
+- `philentropy`: Distancias y divergencias para distribuciones
+- `text2vec`: Distancias especializadas para text mining
+
+## Lecturas recomendadas
+
+### Libros
+
+- Gan, G., Ma, C., & Wu, J. (2020). *Data Clustering: Theory, Algorithms, and Applications* (2nd ed.). Society for Industrial and Applied Mathematics (SIAM).
+  [ISBN: 978-1-611976-31-0]
+
+- Deza, M. M., & Deza, E. (2009). *Encyclopedia of Distances* (4th ed.). Springer.
+  [https://doi.org/10.1007/978-3-662-52844-0](https://doi.org/10.1007/978-3-662-52844-0)
+
+- Aggarwal, C. C., Hinneburg, A., & Keim, D. A. (2001). "On the Surprising Behavior of Distance Metrics in High Dimensional Space". In: *Database Theory — ICDT 2001*. Lecture Notes in Computer Science, vol 1973. Springer.
+  [https://doi.org/10.1007/3-540-44503-X_27](https://doi.org/10.1007/3-540-44503-X_27)
+
+### Artículos
+
+- Boriah, S., Chandola, V., & Kumar, V. (2008). "Similarity Measures for Categorical Data: A Comparative Evaluation". In: *Proceedings of the 2008 SIAM International Conference on Data Mining*, pp. 243-254.
+  [https://doi.org/10.1137/1.9781611972788.22](https://doi.org/10.1137/1.9781611972788.22)
+
+- Gower, J. C. (1971). "A General Coefficient of Similarity and Some of Its Properties". *Biometrics*, 27(4), 857-871.
+  [https://doi.org/10.2307/2528823](https://doi.org/10.2307/2528823)
+
+- Hamming, R. W. (1950). "Error Detecting and Error Correcting Codes". *The Bell System Technical Journal*, 29(2), 147-160.
+  [https://doi.org/10.1002/j.1538-7305.1950.tb00463.x](https://doi.org/10.1002/j.1538-7305.1950.tb00463.x)
+
+### Recursos online
+
+- Documentación de R package `proxy`:
+  [https://CRAN.R-project.org/package=proxy](https://CRAN.R-project.org/package=proxy)
+
+- Documentación de R package `cluster`:
+  [https://CRAN.R-project.org/package=cluster](https://CRAN.R-project.org/package=cluster)
+
+## Preguntas de reflexión final
+
+1. ¿Por qué la distancia euclídea puede no ser apropiada en alta dimensionalidad?
+   *Pista: Piensa en la maldición de la dimensionalidad y el coeficiente de variación.*
+
+2. ¿Qué problemas puede causar calcular distancias sin estandarizar?
+   *Pista: Considera variables con diferentes escalas y unidades.*
+
+3. ¿Cuándo preferirías Manhattan sobre Euclídea?
+   *Pista: Outliers, interpretabilidad, alta dimensionalidad.*
+
+4. ¿Cómo manejarías valores faltantes al calcular distancias?
+   *Pista: Depende del porcentaje de NAs y del mecanismo de ausencia.*
+
+5. ¿Por qué la distancia coseno es invariante a la escala?
+   *Pista: Solo mide el ángulo, no la magnitud.*
+
+6. ¿Qué distancia usarías para comparar perfiles de compradores en e-commerce?
+   *Pista: Datos mixtos (edad, género, categorías de productos, gasto).*
+
+---
+
+**Fin del Laboratorio 4.1**

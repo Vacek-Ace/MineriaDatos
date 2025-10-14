@@ -1,15 +1,22 @@
 ---
 title: "Aprendizaje no supervisado"
-author: "Minería de datos - Grado en Matemáticas"
-date: "Curso académico 2024-2025"
-
-bibliography: References.bib
-
-format: 
-  beamer: 
-    template: dslab.beamer.tex
-
-editor: visual
+author: "Minería de Datos - Grado en Matemáticas"
+institute: "DSLAB"
+date: last-modified
+format:
+  beamer:
+    theme: "Madrid"
+    colortheme: "dolphin"
+    fonttheme: "structurebold"
+    navigation: horizontal
+    section-titles: false
+    toc: false
+    slide-level: 2
+    aspectratio: 169
+    header-includes: |
+      \usepackage{dslab-new}
+      \usedslabmineria
+editor: source
 ---
 
 # Introducción
@@ -304,16 +311,14 @@ El valor $a$ es el número de variables binarias con valores simultáneos iguale
 
 ¿Por qué el centroide es la media de los elementos del cluster? Es el punto que minimiza las distancias
 
-```{=tex}
 \begin{center}
 
 $W(S) = \sum_{k=1}^{K} W(S_k) = \sum_{k=1}^{K}\sum_{\mathbf{x}_i \in S_k} \sum_{j=1}^{m} (x_{ij} - c_{kj})^{2}$
 
 \end{center}
-```
+
 Como $W(S_k)$ es una función cuadrática de $\mathbf{c}_k$*,* para hallar el mínimo basta con derivar con respecto *a* $c_{kj}$
 
-```{=tex}
 \begin{center}
 
 $\frac{\partial W(S_k, \textbf{c}_{\textbf{k}}) }{\partial c_{kj}} = \frac{\partial \sum_{\textbf{x}_{\textbf{i}} \in S_k} \sum_{j=1}^m(x_{ij}-c_{kj})^2}{\partial c_{kj}}=\frac{\partial \sum_{\textbf{x}_{\textbf{i}} \in S_k}(x_{ij}-c_{kj})^2}{\partial c_{kj}}=$
@@ -321,7 +326,7 @@ $\frac{\partial W(S_k, \textbf{c}_{\textbf{k}}) }{\partial c_{kj}} = \frac{\part
 $=-2\sum_{\textbf{x}_{\textbf{i}} \in S_k} (x_{ij}-c_{kj}) \qquad k=1,…,K, \ j \text{ fijo}$
 
 \end{center}
-```
+
 e igualar a 0: $\frac{\partial W(S_k, \textbf{c}_{\textbf{k}}) }{\partial c_{kj}}=0 \Longleftrightarrow c_{kj}= \frac{1}{|S_k|}\sum_{\textbf{x}_{\textbf{i}} \in S_k}x_{ij}$
 
 siendo $|S_k|$ el cardinal de $S_k$.
@@ -424,13 +429,21 @@ Los clústeres están representados por su medoide, entendiendo éste como un pu
 
 # Elección de $k$: método del codo
 
+::: {.columns}
+
+::: {.column width="50%"}
 -   **Objetivo de las** $k$**-medias**: construir grupos que minimicen la variación total dentro de los clústeres
 
 -   Calcular dicha variación para distintos valores de $k$ y graficarla
 
 -   Un "codo" en el gráfico avisará del número apropiado de grupos, es decir, cuando el descenso de la variación de un $k$ al siguiente no sea llamativa
+:::
 
-![](images/paste-FC65FA8A.png){fig-align="center" width="255"}
+::: {.column width="50%"}
+![](images/paste-FC65FA8A.png){fig-align="center" width="100%"}
+:::
+
+:::
 
 # Elección de $k$: método del codo
 
@@ -567,7 +580,7 @@ El clustering aglomerativo comienza con $n$ conglomerados (uno por cada dato) y,
 
 # Cluster jerárquico aglomerativo: criterio de conexión
 
-![](images/enlaces_clustering_aglomerativo.png){fig-align="center" width="460"}
+![](images/enlaces_clustering_aglomerativo.png){fig-align="center" width="540"}
 
 # Cluster jerárquico aglomerativo: criterio de conexión
 
@@ -633,9 +646,19 @@ El clustering aglomerativo comienza con $n$ conglomerados (uno por cada dato) y,
 
 # Cluster jerárquico: dendrograma
 
-Divisivo                                        Aglomerativo (Ward)
+::: {.columns}
+::: {.column width="50%"}
+**Divisivo**
 
-![](images/paste-6EA2F82D.png){fig-align="left" width="220"} ![](images/paste-D0FC798E.png){fig-align="right" width="220"}
+![](images/paste-6EA2F82D.png){width="300"}
+:::
+
+::: {.column width="50%"}
+**Aglomerativo (Ward)**
+
+![](images/paste-D0FC798E.png){width="300"}
+:::
+:::
 
 # Cluster jerárquico: dendrograma
 
@@ -651,11 +674,17 @@ Divisivo                                     
 
 Comparación de enlace Ward y completo:
 
-![](images/paste-DDD68E9A.png){fig-align="center" width="301"}
+::: {.columns}
+::: {.column width="60%"}
+![](images/paste-DDD68E9A.png){width="100%"}
+:::
 
+::: {.column width="40%"}
 -   Líneas discontinuas: elementos no presentes en el otro dendrograma
 
 -   Función de entrelazamiento: calidad de alineación entre los dos dendrogramas. 1 (entrelazamiento total) y 0 (sin entrelazamiento)
+:::
+:::
 
 # Cluster jerárquico: elección del número de grupos
 
@@ -755,7 +784,9 @@ Mapa con estructura 4x4
 
 -   **Requiere grandes conjuntos de datos**: Pueden no funcionar bien en conjuntos de datos pequeños o altamente desequilibrados, ya que su eficacia se basa en la capacidad de aprender patrones significativos a partir de una cantidad suficiente de datos
 
-# Referencias
+# Referencias 
+
+\small
 
 Morissette, L., & Chartier, S. (2013). The k-means clustering technique: General considerations and implementation in Mathematica. *Tutorials in Quantitative Methods for Psychology*, *9*(1), 15-24.
 
