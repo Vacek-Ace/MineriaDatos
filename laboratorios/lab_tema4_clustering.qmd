@@ -347,24 +347,39 @@ par(mfrow = c(1, 2))
 
 # K-medias
 plot(datos_con_outliers$x, datos_con_outliers$y,
-     col = km$cluster + 1, pch = 19,
+     col = km$cluster, pch = 19, cex = 1.2,
      main = "K-medias (sensible a outliers)",
      xlab = "x", ylab = "y")
-points(km$centers[, 1], km$centers[, 2],
-       col = 2:3, pch = 4, cex = 3, lwd = 3)
-points(outliers[, 1], outliers[, 2], pch = 1, cex = 3, lwd = 2)
-legend("topright", c("Centroides", "Outliers"), pch = c(4, 1), lwd = c(3, 2))
+# Dibujar centroides: primero borde blanco grueso, luego símbolo de color
+for(i in 1:nrow(km$centers)) {
+  points(km$centers[i, 1], km$centers[i, 2],
+         col = "white", pch = 4, cex = 3.5, lwd = 6)  # Borde blanco
+  points(km$centers[i, 1], km$centers[i, 2],
+         col = i, pch = 4, cex = 3, lwd = 4)  # X del color del cluster
+}
+# Resaltar outliers con círculos azules
+points(outliers[, 1], outliers[, 2], col = "blue", pch = 1, cex = 2, lwd = 3)
+legend("topright", c("Centroides", "Outliers"),
+       col = c("black", "blue"), pch = c(4, 1), pt.lwd = c(4, 3), cex = 0.8)
 
 # K-medoides
 plot(datos_con_outliers$x, datos_con_outliers$y,
-     col = pam_res$cluster + 1, pch = 19,
+     col = pam_res$cluster, pch = 19, cex = 1.2,
      main = "K-medoides (robusto a outliers)",
      xlab = "x", ylab = "y")
-points(datos_con_outliers[pam_res$medoids, 1],
-       datos_con_outliers[pam_res$medoids, 2],
-       col = 2:3, pch = 4, cex = 3, lwd = 3)
-points(outliers[, 1], outliers[, 2], pch = 1, cex = 3, lwd = 2)
-legend("topright", c("Medoides", "Outliers"), pch = c(4, 1), lwd = c(3, 2))
+# Dibujar medoides: primero borde blanco grueso, luego símbolo de color
+# pam_res$id.med contiene los índices de las observaciones que son medoides
+medoid_coords <- datos_con_outliers[pam_res$id.med, ]
+for(i in 1:nrow(medoid_coords)) {
+  points(medoid_coords$x[i], medoid_coords$y[i],
+         col = "white", pch = 4, cex = 3.5, lwd = 6)  # Borde blanco
+  points(medoid_coords$x[i], medoid_coords$y[i],
+         col = i, pch = 4, cex = 3, lwd = 4)  # X del color del cluster
+}
+# Resaltar outliers con círculos azules
+points(outliers[, 1], outliers[, 2], col = "blue", pch = 1, cex = 2, lwd = 3)
+legend("topright", c("Medoides", "Outliers"),
+       col = c("black", "blue"), pch = c(4, 1), pt.lwd = c(4, 3), cex = 0.8)
 
 par(mfrow = c(1, 1))
 
@@ -910,10 +925,10 @@ plot(som_model, type = "counts",
 
 # 3. Mapping (asignación de observaciones)
 plot(som_model, type = "mapping",
-     labels = iris$Species,
+     pch = 19,  # Usar puntos sólidos en lugar de etiquetas de texto
      col = as.numeric(iris$Species),
      main = "Mapping Plot",
-     pch = 19, cex = 0.7)
+     cex = 0.7)
 legend("topright", legend = levels(iris$Species),
        col = 1:3, pch = 19, cex = 0.8)
 
