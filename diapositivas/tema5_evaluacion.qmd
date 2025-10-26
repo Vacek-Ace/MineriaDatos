@@ -1,15 +1,22 @@
 ---
 title: "Medidas de rendimiento"
-author: "Minería de datos - Grado en Matemáticas"
-date: "Curso académico 2024-2025"
-
-bibliography: References.bib
-
-format: 
-  beamer: 
-    template: dslab.beamer.tex
-
-editor: visual
+author: "Minería de Datos - Grado en Matemáticas"
+institute: "DSLAB"
+date: last-modified
+format:
+  beamer:
+    theme: "Madrid"
+    colortheme: "dolphin"
+    fonttheme: "structurebold"
+    navigation: horizontal
+    section-titles: false
+    toc: false
+    slide-level: 2
+    aspectratio: 169
+    header-includes: |
+      \usepackage{dslab-new}
+      \usedslabmineria
+editor: source
 ---
 
 # Medidas de rendimiento
@@ -226,10 +233,17 @@ el rendimiento relativo, considera medidas como  o MAPE. Es importante seleccion
 
 # Ajuste hiperparámetros
 
+::: {.columns}
+
+::: {.column width="45%"}
 -   Modelo $knn$
 
--   Elección del número de vecinos $k$: validación cruzada ($t$ trozos) probando distintos valores de $k$, por ejemplo:
+-   Elección del número de vecinos $k$: validación cruzada ($t$ trozos) probando distintos valores de $k$
 
+-   Ejemplo de resultados:
+:::
+
+::: {.column width="55%"}
 | Número de vecinos $k$ | Media (Desv. Std.) |
 |-----------------------|--------------------|
 | 1                     | 1,54 (0,33)        |
@@ -243,6 +257,9 @@ el rendimiento relativo, considera medidas como  o MAPE. Es importante seleccion
 | 9                     | 2,25 (0,46)        |
 | 10                    | 2,34 (0,34)        |
 | 11                    | 2,33 (0,38)        |
+:::
+
+:::
 
 # Comparación de modelos
 
