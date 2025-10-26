@@ -1,13 +1,22 @@
 ---
 title: "Aprendizaje supervisado"
-author: "Minería de datos - Grado en Matemáticas"
-date: "Curso académico 2024-2025"
-
-format: 
-  beamer: 
-    template: dslab.beamer.tex
-
-editor: visual
+author: "Minería de Datos - Grado en Matemáticas"
+institute: "DSLAB"
+date: last-modified
+format:
+  beamer:
+    theme: "Madrid"
+    colortheme: "dolphin"
+    fonttheme: "structurebold"
+    navigation: horizontal
+    section-titles: false
+    toc: false
+    slide-level: 2
+    aspectratio: 169
+    header-includes: |
+      \usepackage{dslab-new}
+      \usedslabmineria
+editor: source
 ---
 
 # Introducción
@@ -60,6 +69,8 @@ editor: visual
 
     siendo $P(C=1|\mathbf{X}=\mathbf{x})$ la probabilidad a posteriori, es decir, la probabilidad de la clase 1 dada la observación $\mathbf{x}$. $P(c)$ es la probabilidad a priori de la clase $c$. Nótese que $\sum_{c=1}^{C_n}P(c) =1$. Finalmente $f_c(\mathbf{x})$ es la función de densidad condicional de las $\mathbf{X}$ en la clase $c$
 
+# Análisis Discriminante Lineal (ADL)
+
 -   En el caso del ADL, se asume que la densidad de cada clase es una Normal multivariante
 
     $$
@@ -73,7 +84,9 @@ editor: visual
 En base a estas asunciones, comparemos las probabilidades de ambas clases:
 
 $$
-log\left( \frac{P(C=1|\mathbf{X}=\mathbf{x})}{P(C=0|\mathbf{X}=\mathbf{x})} \right) = log\left( \frac{f_1(\mathbf{x})}{f_0(\mathbf{x})} \right) + log\left( \frac{P(1)}{P(0)} \right) =$$ $$= log\left( \frac{P(1)}{P(0)} \right) - \frac{1}{2}(\mu_1 + \mu_0)^{t}\Sigma^{-1}(\mu_1-\mu_0) + \mathbf{x}^{t}\Sigma^{-1}(\mu_1-\mu_0)
+log\left( \frac{P(C=1|\mathbf{X}=\mathbf{x})}{P(C=0|\mathbf{X}=\mathbf{x})} \right) = log\left( \frac{f_1(\mathbf{x})}{f_0(\mathbf{x})} \right) + log\left( \frac{P(1)}{P(0)} \right)=$$ 
+
+$$log\left( \frac{P(1)}{P(0)} \right) - \frac{1}{2}(\mu_1 + \mu_0)^{t}\Sigma^{-1}(\mu_1-\mu_0) + \mathbf{x}^{t}\Sigma^{-1}(\mu_1-\mu_0)
 $$
 
 Obtenemos una ecuación que es lineal en $\mathbf{x}$. Es decir, la frontera de decisión entre las clases 0 y 1 es una ecuación lineal, un hiperplano en dimensión $p$
@@ -110,9 +123,11 @@ $$
 
 que es una combinación lineal de las variables explicativas
 
-**Interpretación**: Proyectar el punto a clasificar y las medias de las clases en una recta y asignar la observación a la clase con media más cercana
+
 
 # Análisis Discriminante Lineal (ADL)
+
+**Interpretación**: Proyectar el punto a clasificar y las medias de las clases en una recta y asignar la observación a la clase con media más cercana
 
 ![Murphy, K. P. (2012). Machine learning: a probabilistic perspective. MIT press.](images/paste-5A3383CF.png){fig-align="center" width="403"}
 
@@ -182,8 +197,21 @@ que es una combinación lineal de las variables explicativas
 
 # $k$-vecinos más próximos ($k$-nn)
 
-![Origen de las imágenes: Hastie, T., Tibshirani, R., Friedman, J. H., & Friedman, J. H. (2009). The elements of statistical learning: data mining, inference, and prediction (Vol. 2, pp. 1-758). New York: springer.](images/paste-18B1E9C6.png){width="225"} ![](images/paste-21816AB9.png){width="223"}
+::: {.columns}
 
+::: {.column width="50%"}
+![](images/paste-18B1E9C6.png){fig-align="center" width="70%"}
+:::
+
+::: {.column width="50%"}
+![](images/paste-21816AB9.png){fig-align="center" width="70%"}
+:::
+
+:::
+
+\vspace{0.3cm}
+
+\footnotesize
 Origen de las imágenes: Hastie, T., Tibshirani, R., Friedman, J. H., & Friedman, J. H. (2009). *The elements of statistical learning: data mining, inference, and prediction* (Vol. 2, pp. 1-758). New York: springer.
 
 # Árbol de decisión
@@ -445,21 +473,24 @@ $$P(Y_k|X_1,\ldots,X_n)=\frac{P(Y_k)\prod_{j=1}^nP(X_j|Y_k)}{P(X_1,X_2,\ldots,X_
 
 # Naive Bayes
 
-**Aplicación en un problema de clasificación:**
+
+**Fórmula:**
 
 $$P(Y_k|X_1,\dots,X_n)=\frac{P(Y_k)\prod_{j=1}^n P(X_j|Y_k)}{P(X_1,X_2,\dots,X_n)}$$
 
--   Denominador constante
+**Componentes:**
 
--   La probabilidad de clase $P(Y_k)$: probabilidad a priori
+-   **Denominador**: constante
 
--   Verosimilitud: $$\prod_{j=1}^n P(X_j|Y_k) $$ Mide cómo de verosímiles son las observaciones de las variables explicativas dado el valor de la respuesta $Y_k$
+-   **$P(Y_k)$**: probabilidad a priori
 
-    -   Variable cuantitativa: se asume distribución Normal
+-   **Verosimilitud** $\prod_{j=1}^n P(X_j|Y_k)$: mide cómo de verosímiles son las variables explicativas dado $Y_k$
 
-    -   Variable cualitativa: proporción de la clase en las categorías de la variable
+    -   Variable cuantitativa: Normal
+    -   Variable cualitativa: proporción
 
--   Se predice la clase con mayor probabilidad de clase condicionada $P(Y_k|X_1,\ldots,X_n)$
+-   **Predicción**: clase con mayor $P(Y_k|X_1,\ldots,X_n)$
+
 
 # Mezcla de Gaussianas
 
