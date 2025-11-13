@@ -1,0 +1,1562 @@
+---
+title: "Laboratorio 6: Aprendizaje Supervisado y Evaluación de Modelos"
+author: "Minería de Datos - Grado en Matemáticas"
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    number-sections: true
+    code-fold: false
+    theme: cosmo
+    embed-resources: true
+    self-contained: true
+editor: source
+knitr:
+  opts_chunk:
+    warning: false
+    message: false
+---
+
+# Introducción
+
+En este laboratorio trabajaremos con **algoritmos de aprendizaje supervisado** y aprenderemos a **evaluar el rendimiento** de estos modelos. Este laboratorio integra contenidos de los temas 5 (Evaluación) y 6 (Aprendizaje Supervisado).
+
+## Contenidos del laboratorio
+
+**Parte 1: Modelos de Clasificación**
+
+- Análisis Discriminante Lineal (LDA)
+- k-Vecinos más Próximos (k-NN)
+- Árboles de Decisión
+- Random Forest
+- Naive Bayes
+
+**Parte 2: Evaluación de Modelos de Clasificación**
+
+- Partición de datos (Train/Test/Validation)
+- Validación cruzada
+- Matriz de confusión
+- Métricas: Accuracy, Precision, Recall, F1-Score
+- Curvas ROC y AUC
+- Ajuste de hiperparámetros
+
+**Parte 3: Modelos de Regresión**
+
+- Regresión Lineal
+- k-NN para regresión
+- Árboles de regresión
+- Random Forest para regresión
+
+**Parte 4: Evaluación de Modelos de Regresión**
+
+- MSE, RMSE, MAE, R²
+- Análisis de residuos
+- Comparación de modelos
+
+## Objetivos de aprendizaje
+
+1. Implementar y comparar diferentes modelos supervisados
+2. Entender el balance entre sesgo y varianza
+3. Aplicar técnicas de validación cruzada
+4. Calcular e interpretar métricas de evaluación
+5. Optimizar hiperparámetros
+6. Prevenir el sobreajuste
+7. Comparar modelos de forma rigurosa
+
+# Configuración inicial
+
+```{r setup, message=FALSE, warning=FALSE}
+# Librerías necesarias
+library(tidyverse)
+library(caret)         # Framework para ML
+library(MASS)          # LDA y datasets
+library(class)         # k-NN
+library(rpart)         # Árboles de decisión
+library(rpart.plot)    # Visualización de árboles
+library(randomForest)  # Random Forest
+library(e1071)         # Naive Bayes y SVM
+library(pROC)          # Curvas ROC
+library(MLmetrics)     # Métricas adicionales
+library(gridExtra)     # Gráficos múltiples
+library(ggplot2)
+library(GGally)        # Pairplots
+
+# Configuración general
+set.seed(2025)
+theme_set(theme_minimal())
+
+cat("=== LIBRERÍAS CARGADAS CORRECTAMENTE ===\n")
+cat("Versión de R:", R.version.string, "\n")
+```
+
+# PARTE 1: CLASIFICACIÓN
+
+## 1.1 Preparación de Datos
+
+Utilizaremos el dataset **iris** para clasificación multiclase y crearemos un problema binario para algunas visualizaciones.
+
+```{r datos-clasificacion}
+# Dataset iris completo (3 clases)
+data(iris)
+cat("=== DATASET IRIS ===\n")
+cat("Dimensiones:", dim(iris), "\n")
+cat("Clases:", levels(iris$Species), "\n\n")
+
+# Resumen
+summary(iris)
+
+# Visualización exploratoria
+ggpairs(iris, columns = 1:4, aes(color = Species, alpha = 0.5),
+        title = "Pairplot del Dataset Iris")
+
+# Crear versión binaria (setosa vs. no-setosa)
+iris_binary <- iris %>%
+  mutate(Species_binary = ifelse(Species == "setosa", "setosa", "no_setosa"),
+         Species_binary = factor(Species_binary))
+
+cat("\n=== DATASET BINARIO ===\n")
+table(iris_binary$Species_binary)
+```
+
+### Ejercicio 1.1: Exploración inicial
+
+Analiza el dataset y responde:
+
+**Pregunta 1**: ¿Qué variables parecen discriminar mejor entre las especies?
+
+**Pregunta 2**: ¿Hay datos desbalanceados en el problema binario?
+
+## 1.2 Partición de Datos
+
+```{r particion-datos}
+# Función para particionar datos
+particionar_datos <- function(data, target_col, train_prop = 0.6, 
+                               test_prop = 0.2, seed = 2025) {
+  set.seed(seed)
+  n <- nrow(data)
+  
+  # Índices de entrenamiento
+  train_idx <- sample(1:n, size = round(train_prop * n))
+  remaining_idx <- setdiff(1:n, train_idx)
+  
+  # Índices de test y validación
+  n_remaining <- length(remaining_idx)
+  test_size <- round(test_prop * n)
+  test_idx <- sample(remaining_idx, size = test_size)
+  val_idx <- setdiff(remaining_idx, test_idx)
+  
+  # Crear conjuntos
+  list(
+    train = data[train_idx, ],
+    test = data[test_idx, ],
+    validation = data[val_idx, ],
+    indices = list(train = train_idx, test = test_idx, val = val_idx)
+  )
+}
+
+# Particionar datos multiclase
+particiones <- particionar_datos(iris, "Species", 
+                                  train_prop = 0.6, test_prop = 0.2)
+
+cat("=== PARTICIÓN DE DATOS ===\n")
+cat("Train:", nrow(particiones$train), "observaciones\n")
+cat("Test:", nrow(particiones$test), "observaciones\n")
+cat("Validation:", nrow(particiones$validation), "observaciones\n\n")
+
+cat("Distribución de clases en Train:\n")
+print(table(particiones$train$Species))
+cat("\nDistribución de clases en Test:\n")
+print(table(particiones$test$Species))
+cat("\nDistribución de clases en Validation:\n")
+print(table(particiones$validation$Species))
+```
+
+### Ejercicio 1.2: Partición estratificada
+
+**Pregunta 3**: ¿Por qué es importante mantener proporciones similares de cada clase en train/test/validation?
+
+## 1.3 Análisis Discriminante Lineal (LDA)
+
+```{r lda-modelo}
+cat("=== ANÁLISIS DISCRIMINANTE LINEAL (LDA) ===\n\n")
+
+# Entrenar modelo LDA
+lda_model <- lda(Species ~ ., data = particiones$train)
+
+cat("Modelo LDA entrenado:\n")
+print(lda_model)
+
+# Probabilidades a priori
+cat("\nProbabilidades a priori:\n")
+print(lda_model$prior)
+
+# Medias de grupo
+cat("\nMedias por grupo:\n")
+print(lda_model$means)
+
+# Coeficientes del discriminante lineal
+cat("\nCoeficientes de los discriminantes lineales:\n")
+print(lda_model$scaling)
+
+# Predicciones en test
+lda_pred_test <- predict(lda_model, particiones$test)
+
+cat("\n=== PREDICCIONES EN TEST ===\n")
+cat("Primeras 10 predicciones:\n")
+print(head(lda_pred_test$class, 10))
+cat("\nProbabilidades posteriores (primeras 5 observaciones):\n")
+print(head(lda_pred_test$posterior, 5))
+
+# Visualización del espacio discriminante
+lda_plot_data <- data.frame(
+  LD1 = lda_pred_test$x[, 1],
+  LD2 = lda_pred_test$x[, 2],
+  Clase_Real = particiones$test$Species,
+  Clase_Predicha = lda_pred_test$class
+)
+
+ggplot(lda_plot_data, aes(x = LD1, y = LD2)) +
+  geom_point(aes(color = Clase_Real, shape = Clase_Predicha), size = 3) +
+  labs(title = "Proyección en el Espacio Discriminante (LDA)",
+       x = "LD1 (Primer Discriminante)", 
+       y = "LD2 (Segundo Discriminante)",
+       color = "Clase Real", shape = "Clase Predicha") +
+  theme_minimal()
+```
+
+### Ejercicio 1.3: Interpretación de LDA
+
+**Pregunta 4**: ¿Qué variables tienen mayor peso en el primer discriminante lineal?
+
+**Pregunta 5**: ¿Las clases están bien separadas en el espacio discriminante?
+
+## 1.4 k-Vecinos más Próximos (k-NN)
+
+```{r knn-modelo}
+cat("=== k-VECINOS MÁS PRÓXIMOS (k-NN) ===\n\n")
+
+# Estandarizar datos (importante para k-NN)
+train_scaled <- particiones$train
+test_scaled <- particiones$test
+
+# Calcular media y desviación típica solo con train
+means_train <- colMeans(particiones$train[, 1:4])
+sds_train <- apply(particiones$train[, 1:4], 2, sd)
+
+# Estandarizar
+train_scaled[, 1:4] <- scale(particiones$train[, 1:4], 
+                              center = means_train, scale = sds_train)
+test_scaled[, 1:4] <- scale(particiones$test[, 1:4], 
+                             center = means_train, scale = sds_train)
+
+cat("Datos estandarizados (media=0, sd=1)\n")
+cat("Media Train después de escalar:\n")
+print(colMeans(train_scaled[, 1:4]))
+cat("\nDesviación típica Train después de escalar:\n")
+print(apply(train_scaled[, 1:4], 2, sd))
+
+# Entrenar k-NN con diferentes valores de k
+k_values <- c(1, 3, 5, 7, 9, 11, 15)
+knn_results <- list()
+
+for(k in k_values) {
+  knn_pred <- knn(train = train_scaled[, 1:4],
+                  test = test_scaled[, 1:4],
+                  cl = train_scaled$Species,
+                  k = k)
+  
+  # Calcular accuracy
+  accuracy <- mean(knn_pred == test_scaled$Species)
+  knn_results[[paste0("k=", k)]] <- list(
+    predictions = knn_pred,
+    accuracy = accuracy
+  )
+}
+
+# Comparar resultados
+cat("\n=== COMPARACIÓN DE DIFERENTES VALORES DE k ===\n")
+accuracies_df <- data.frame(
+  k = k_values,
+  Accuracy = sapply(knn_results, function(x) x$accuracy)
+)
+print(accuracies_df)
+
+# Visualizar
+ggplot(accuracies_df, aes(x = k, y = Accuracy)) +
+  geom_line(color = "blue", size = 1) +
+  geom_point(color = "red", size = 3) +
+  labs(title = "Accuracy de k-NN según el valor de k",
+       x = "Número de vecinos (k)",
+       y = "Accuracy en Test") +
+  scale_x_continuous(breaks = k_values) +
+  ylim(0.8, 1.0)
+
+# Mejor k
+best_k <- k_values[which.max(accuracies_df$Accuracy)]
+cat("\nMejor k:", best_k, "con Accuracy =", 
+    max(accuracies_df$Accuracy), "\n")
+```
+
+### Ejercicio 1.4: Optimización de k
+
+**Pregunta 6**: ¿Por qué el accuracy varía con k?
+
+**Pregunta 7**: ¿Qué valor de k recomendarías y por qué?
+
+## 1.5 Árboles de Decisión
+
+```{r arboles-decision}
+cat("=== ÁRBOLES DE DECISIÓN ===\n\n")
+
+# Entrenar árbol de decisión
+tree_model <- rpart(Species ~ ., data = particiones$train,
+                    method = "class",
+                    control = rpart.control(minsplit = 10, cp = 0.01))
+
+cat("Resumen del árbol:\n")
+print(tree_model)
+
+# Visualizar árbol
+rpart.plot(tree_model, 
+           main = "Árbol de Decisión para Clasificación de Iris",
+           extra = 104,  # Mostrar probabilidades y conteos
+           box.palette = "RdYlGn",
+           shadow.col = "gray",
+           nn = TRUE)
+
+# Importancia de variables
+cat("\n=== IMPORTANCIA DE VARIABLES ===\n")
+print(tree_model$variable.importance)
+
+# Predicciones
+tree_pred_test <- predict(tree_model, particiones$test, type = "class")
+tree_pred_prob <- predict(tree_model, particiones$test, type = "prob")
+
+cat("\nPrimeras predicciones (clase):\n")
+print(head(tree_pred_test, 10))
+cat("\nPrimeras predicciones (probabilidades):\n")
+print(head(tree_pred_prob, 5))
+
+# Accuracy
+tree_accuracy <- mean(tree_pred_test == particiones$test$Species)
+cat("\nAccuracy en Test:", tree_accuracy, "\n")
+
+# Explorar complejidad del árbol (poda)
+plotcp(tree_model, main = "Error vs Complejidad del Árbol")
+
+# Árbol podado
+tree_pruned <- prune(tree_model, 
+                     cp = tree_model$cptable[which.min(tree_model$cptable[,"xerror"]),"CP"])
+
+cat("\n=== ÁRBOL PODADO ===\n")
+rpart.plot(tree_pruned,
+           main = "Árbol de Decisión Podado",
+           extra = 104,
+           box.palette = "RdYlGn")
+```
+
+### Ejercicio 1.5: Interpretación de árboles
+
+**Pregunta 8**: ¿Qué variable es la más importante según el árbol?
+
+**Pregunta 9**: ¿Cuántas hojas tiene el árbol podado? ¿Es más simple que el original?
+
+## 1.6 Random Forest
+
+```{r random-forest}
+cat("=== RANDOM FOREST ===\n\n")
+
+# Entrenar Random Forest
+rf_model <- randomForest(Species ~ ., 
+                         data = particiones$train,
+                         ntree = 500,
+                         mtry = 2,  # sqrt(4) para clasificación
+                         importance = TRUE)
+
+print(rf_model)
+
+# Error OOB (Out-of-Bag)
+cat("\n=== TASA DE ERROR OOB ===\n")
+plot(rf_model, main = "Error OOB vs Número de Árboles")
+legend("topright", legend = colnames(rf_model$err.rate), 
+       col = 1:4, lty = 1:4, cex = 0.8)
+
+# Importancia de variables
+cat("\n=== IMPORTANCIA DE VARIABLES ===\n")
+importance_df <- as.data.frame(importance(rf_model))
+importance_df$Variable <- rownames(importance_df)
+print(importance_df[order(-importance_df$MeanDecreaseGini), ])
+
+# Visualizar importancia
+varImpPlot(rf_model, main = "Importancia de Variables en Random Forest")
+
+# Predicciones
+rf_pred_test <- predict(rf_model, particiones$test)
+rf_pred_prob <- predict(rf_model, particiones$test, type = "prob")
+
+# Accuracy
+rf_accuracy <- mean(rf_pred_test == particiones$test$Species)
+cat("\nAccuracy en Test:", rf_accuracy, "\n")
+
+# Optimizar mtry
+cat("\n=== OPTIMIZACIÓN DE mtry ===\n")
+mtry_values <- 1:4
+oob_errors <- numeric(length(mtry_values))
+
+for(i in seq_along(mtry_values)) {
+  rf_temp <- randomForest(Species ~ ., 
+                          data = particiones$train,
+                          ntree = 500,
+                          mtry = mtry_values[i])
+  oob_errors[i] <- rf_temp$err.rate[500, "OOB"]
+}
+
+mtry_df <- data.frame(mtry = mtry_values, OOB_Error = oob_errors)
+print(mtry_df)
+
+ggplot(mtry_df, aes(x = mtry, y = OOB_Error)) +
+  geom_line(color = "blue") +
+  geom_point(color = "red", size = 3) +
+  labs(title = "Error OOB vs mtry",
+       x = "mtry (número de variables consideradas en cada split)",
+       y = "Error OOB") +
+  scale_x_continuous(breaks = mtry_values)
+```
+
+### Ejercicio 1.6: Random Forest
+
+**Pregunta 10**: ¿Qué variable es la más importante según Random Forest?
+
+**Pregunta 11**: ¿Cuál es el mejor valor de mtry?
+
+## 1.7 Naive Bayes
+
+```{r naive-bayes}
+cat("=== NAIVE BAYES ===\n\n")
+
+# Entrenar Naive Bayes
+nb_model <- naiveBayes(Species ~ ., data = particiones$train)
+
+print(nb_model)
+
+# Probabilidades a priori
+cat("\n=== PROBABILIDADES A PRIORI ===\n")
+print(nb_model$apriori)
+
+# Medias condicionales (para variables continuas)
+cat("\n=== TABLAS CONDICIONALES (Medias y Desviaciones) ===\n")
+print(nb_model$tables)
+
+# Predicciones
+nb_pred_test <- predict(nb_model, particiones$test)
+nb_pred_prob <- predict(nb_model, particiones$test, type = "raw")
+
+cat("\nPrimeras predicciones (probabilidades):\n")
+print(head(nb_pred_prob, 5))
+
+# Accuracy
+nb_accuracy <- mean(nb_pred_test == particiones$test$Species)
+cat("\nAccuracy en Test:", nb_accuracy, "\n")
+```
+
+### Ejercicio 1.7: Naive Bayes
+
+**Pregunta 12**: ¿Qué asunciones hace el modelo Naive Bayes?
+
+**Pregunta 13**: ¿Se cumplen estas asunciones en el dataset iris?
+
+# PARTE 2: EVALUACIÓN DE MODELOS DE CLASIFICACIÓN
+
+## 2.1 Matriz de Confusión
+
+```{r matriz-confusion}
+cat("=== MATRICES DE CONFUSIÓN ===\n\n")
+
+# Función para crear matriz de confusión mejorada
+crear_matriz_confusion <- function(real, predicho, modelo_nombre) {
+  cm <- confusionMatrix(predicho, real)
+  
+  cat("=== MODELO:", modelo_nombre, "===\n")
+  print(cm$table)
+  cat("\nMétricas generales:\n")
+  cat("Accuracy:", round(cm$overall["Accuracy"], 4), "\n")
+  cat("Kappa:", round(cm$overall["Kappa"], 4), "\n\n")
+  cat("Métricas por clase:\n")
+  print(cm$byClass)
+  cat("\n", rep("=", 60), "\n\n")
+  
+  return(cm)
+}
+
+# Matrices de confusión para todos los modelos
+cm_lda <- crear_matriz_confusion(particiones$test$Species, 
+                                  lda_pred_test$class, "LDA")
+
+cm_knn <- crear_matriz_confusion(particiones$test$Species, 
+                                  knn_results[[paste0("k=", best_k)]]$predictions, 
+                                  paste0("k-NN (k=", best_k, ")"))
+
+cm_tree <- crear_matriz_confusion(particiones$test$Species, 
+                                   tree_pred_test, "Árbol de Decisión")
+
+cm_rf <- crear_matriz_confusion(particiones$test$Species, 
+                                 rf_pred_test, "Random Forest")
+
+cm_nb <- crear_matriz_confusion(particiones$test$Species, 
+                                 nb_pred_test, "Naive Bayes")
+```
+
+## 2.2 Comparación de Modelos
+
+```{r comparacion-modelos}
+cat("=== COMPARACIÓN DE MODELOS ===\n\n")
+
+# Recopilar métricas
+comparacion <- data.frame(
+  Modelo = c("LDA", paste0("k-NN (k=", best_k, ")"), 
+             "Árbol de Decisión", "Random Forest", "Naive Bayes"),
+  Accuracy = c(
+    cm_lda$overall["Accuracy"],
+    cm_knn$overall["Accuracy"],
+    cm_tree$overall["Accuracy"],
+    cm_rf$overall["Accuracy"],
+    cm_nb$overall["Accuracy"]
+  ),
+  Kappa = c(
+    cm_lda$overall["Kappa"],
+    cm_knn$overall["Kappa"],
+    cm_tree$overall["Kappa"],
+    cm_rf$overall["Kappa"],
+    cm_nb$overall["Kappa"]
+  )
+)
+
+print(comparacion)
+
+# Visualizar comparación
+comparacion_long <- comparacion %>%
+  pivot_longer(cols = c(Accuracy, Kappa), 
+               names_to = "Metrica", values_to = "Valor")
+
+ggplot(comparacion_long, aes(x = Modelo, y = Valor, fill = Metrica)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "Comparación de Modelos de Clasificación",
+       y = "Valor de la Métrica") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  ylim(0, 1)
+```
+
+### Ejercicio 2.2: Comparación
+
+**Pregunta 14**: ¿Qué modelo tiene mejor rendimiento general?
+
+**Pregunta 15**: ¿Hay algún modelo que destaque en alguna clase específica?
+
+## 2.3 Curvas ROC y AUC (Problema Binario)
+
+```{r roc-auc}
+cat("=== CURVAS ROC Y AUC (Problema Binario) ===\n\n")
+
+# Particionar datos binarios
+particiones_bin <- particionar_datos(iris_binary, "Species_binary")
+
+# Entrenar modelos con datos binarios
+lda_bin <- lda(Species_binary ~ Sepal.Length + Sepal.Width + 
+                 Petal.Length + Petal.Width, data = particiones_bin$train)
+lda_pred_bin <- predict(lda_bin, particiones_bin$test)
+
+# Random Forest binario
+rf_bin <- randomForest(Species_binary ~ Sepal.Length + Sepal.Width + 
+                         Petal.Length + Petal.Width, 
+                       data = particiones_bin$train)
+rf_pred_bin_prob <- predict(rf_bin, particiones_bin$test, type = "prob")
+
+# Naive Bayes binario
+nb_bin <- naiveBayes(Species_binary ~ Sepal.Length + Sepal.Width + 
+                       Petal.Length + Petal.Width, 
+                     data = particiones_bin$train)
+nb_pred_bin_prob <- predict(nb_bin, particiones_bin$test, type = "raw")
+
+# Crear curvas ROC
+# LDA
+roc_lda <- roc(particiones_bin$test$Species_binary, 
+               lda_pred_bin$posterior[, "setosa"],
+               levels = c("no_setosa", "setosa"))
+
+# Random Forest
+roc_rf <- roc(particiones_bin$test$Species_binary,
+              rf_pred_bin_prob[, "setosa"],
+              levels = c("no_setosa", "setosa"))
+
+# Naive Bayes
+roc_nb <- roc(particiones_bin$test$Species_binary,
+              nb_pred_bin_prob[, "setosa"],
+              levels = c("no_setosa", "setosa"))
+
+# Calcular AUC
+cat("AUC - LDA:", round(auc(roc_lda), 4), "\n")
+cat("AUC - Random Forest:", round(auc(roc_rf), 4), "\n")
+cat("AUC - Naive Bayes:", round(auc(roc_nb), 4), "\n\n")
+
+# Graficar curvas ROC
+plot(roc_lda, col = "blue", main = "Curvas ROC - Comparación de Modelos",
+     print.auc = TRUE, print.auc.y = 0.4)
+plot(roc_rf, col = "red", add = TRUE, print.auc = TRUE, print.auc.y = 0.3)
+plot(roc_nb, col = "green", add = TRUE, print.auc = TRUE, print.auc.y = 0.2)
+legend("bottomright", 
+       legend = c("LDA", "Random Forest", "Naive Bayes"),
+       col = c("blue", "red", "green"), lwd = 2)
+
+# Análisis del punto de corte óptimo
+cat("\n=== PUNTO DE CORTE ÓPTIMO (LDA) ===\n")
+coords_lda <- coords(roc_lda, "best", ret = c("threshold", "specificity", 
+                                               "sensitivity", "accuracy"))
+print(coords_lda)
+```
+
+### Ejercicio 2.3: ROC y AUC
+
+**Pregunta 16**: ¿Qué modelo tiene mejor AUC?
+
+**Pregunta 17**: ¿Cómo cambiarías el umbral de decisión si el costo de un falso negativo es muy alto?
+
+## 2.4 Validación Cruzada
+
+```{r validacion-cruzada}
+cat("=== VALIDACIÓN CRUZADA (k-fold) ===\n\n")
+
+# Configurar validación cruzada
+train_control <- trainControl(
+  method = "cv",      # Cross-validation
+  number = 10,        # 10 folds
+  savePredictions = "final",
+  classProbs = TRUE,
+  summaryFunction = multiClassSummary
+)
+
+# Entrenar modelos con validación cruzada
+set.seed(2025)
+
+# LDA con CV
+lda_cv <- train(Species ~ ., 
+                data = particiones$train,
+                method = "lda",
+                trControl = train_control)
+
+# k-NN con CV y grid search
+knn_cv <- train(Species ~ .,
+                data = particiones$train,
+                method = "knn",
+                trControl = train_control,
+                preProcess = c("center", "scale"),
+                tuneGrid = expand.grid(k = seq(1, 21, by = 2)))
+
+# Random Forest con CV
+rf_cv <- train(Species ~ .,
+               data = particiones$train,
+               method = "rf",
+               trControl = train_control,
+               tuneGrid = expand.grid(mtry = 1:4))
+
+# Naive Bayes con CV
+nb_cv <- train(Species ~ .,
+               data = particiones$train,
+               method = "naive_bayes",
+               trControl = train_control)
+
+# Resultados
+cat("=== RESULTADOS DE VALIDACIÓN CRUZADA ===\n\n")
+
+cat("LDA:\n")
+print(lda_cv$results)
+cat("\n")
+
+cat("k-NN (mejor k =", knn_cv$bestTune$k, "):\n")
+print(knn_cv$results[knn_cv$results$k == knn_cv$bestTune$k, ])
+cat("\n")
+
+cat("Random Forest (mejor mtry =", rf_cv$bestTune$mtry, "):\n")
+print(rf_cv$results[rf_cv$results$mtry == rf_cv$bestTune$mtry, ])
+cat("\n")
+
+cat("Naive Bayes:\n")
+print(nb_cv$results)
+cat("\n")
+
+# Visualizar resultados de k-NN
+plot(knn_cv, main = "Accuracy de k-NN según k (Validación Cruzada)")
+
+# Visualizar resultados de RF
+plot(rf_cv, main = "Accuracy de Random Forest según mtry (Validación Cruzada)")
+
+# Comparar modelos
+resamples_list <- resamples(list(
+  LDA = lda_cv,
+  kNN = knn_cv,
+  RF = rf_cv,
+  NB = nb_cv
+))
+
+cat("\n=== COMPARACIÓN DE MODELOS (CV) ===\n")
+summary(resamples_list)
+
+# Visualización comparativa
+bwplot(resamples_list, main = "Comparación de Accuracy entre Modelos (CV)")
+dotplot(resamples_list, main = "Comparación de Métricas entre Modelos (CV)")
+```
+
+### Ejercicio 2.4: Validación Cruzada
+
+**Pregunta 18**: ¿Qué modelo tiene mejor rendimiento según validación cruzada?
+
+**Pregunta 19**: ¿Los resultados de CV coinciden con los resultados en el conjunto de test?
+
+## 2.5 Análisis de Errores
+
+```{r analisis-errores}
+cat("=== ANÁLISIS DE ERRORES ===\n\n")
+
+# Función para analizar errores
+analizar_errores <- function(real, predicho, datos, modelo_nombre) {
+  errores_idx <- which(real != predicho)
+  
+  cat("=== ANÁLISIS DE ERRORES:", modelo_nombre, "===\n")
+  cat("Número de errores:", length(errores_idx), "\n")
+  cat("Tasa de error:", round(length(errores_idx) / length(real), 4), "\n\n")
+  
+  if(length(errores_idx) > 0) {
+    cat("Observaciones mal clasificadas:\n")
+    errores_df <- data.frame(
+      Observacion = errores_idx,
+      Clase_Real = real[errores_idx],
+      Clase_Predicha = predicho[errores_idx]
+    )
+    print(errores_df)
+    cat("\n")
+    
+    # Mostrar características de observaciones mal clasificadas
+    cat("Características de las observaciones mal clasificadas:\n")
+    print(datos[errores_idx, ])
+    cat("\n", rep("=", 60), "\n\n")
+  }
+}
+
+# Analizar errores de cada modelo
+analizar_errores(particiones$test$Species, lda_pred_test$class, 
+                 particiones$test, "LDA")
+
+analizar_errores(particiones$test$Species, 
+                 knn_results[[paste0("k=", best_k)]]$predictions,
+                 particiones$test, paste0("k-NN (k=", best_k, ")"))
+
+analizar_errores(particiones$test$Species, tree_pred_test,
+                 particiones$test, "Árbol de Decisión")
+
+analizar_errores(particiones$test$Species, rf_pred_test,
+                 particiones$test, "Random Forest")
+
+analizar_errores(particiones$test$Species, nb_pred_test,
+                 particiones$test, "Naive Bayes")
+```
+
+### Ejercicio 2.5: Errores
+
+**Pregunta 20**: ¿Hay algún patrón en las observaciones mal clasificadas?
+
+# PARTE 3: REGRESIÓN
+
+## 3.1 Preparación de Datos para Regresión
+
+Utilizaremos el dataset **mtcars** para predecir el consumo de combustible (mpg).
+
+```{r datos-regresion}
+cat("=== DATASET MTCARS ===\n")
+data(mtcars)
+
+cat("Dimensiones:", dim(mtcars), "\n")
+cat("Variables:\n")
+print(names(mtcars))
+cat("\n")
+
+summary(mtcars)
+
+# Visualización
+ggpairs(mtcars[, c("mpg", "cyl", "disp", "hp", "wt")],
+        title = "Pairplot - Variables seleccionadas de mtcars")
+
+# Particionar datos
+particiones_reg <- particionar_datos(mtcars, "mpg")
+
+cat("\n=== PARTICIÓN DE DATOS ===\n")
+cat("Train:", nrow(particiones_reg$train), "observaciones\n")
+cat("Test:", nrow(particiones_reg$test), "observaciones\n")
+cat("Validation:", nrow(particiones_reg$validation), "observaciones\n")
+```
+
+## 3.2 Regresión Lineal
+
+```{r regresion-lineal}
+cat("=== REGRESIÓN LINEAL ===\n\n")
+
+# Modelo de regresión lineal múltiple
+lm_model <- lm(mpg ~ ., data = particiones_reg$train)
+
+cat("Resumen del modelo:\n")
+summary(lm_model)
+
+# Coeficientes
+cat("\n=== COEFICIENTES ===\n")
+print(coef(lm_model))
+
+# Predicciones
+lm_pred_test <- predict(lm_model, particiones_reg$test)
+lm_pred_train <- predict(lm_model, particiones_reg$train)
+
+# Gráfico de predicciones vs reales
+par(mfrow = c(1, 2))
+plot(particiones_reg$test$mpg, lm_pred_test,
+     main = "Predicciones vs Reales (Test)",
+     xlab = "MPG Real", ylab = "MPG Predicho",
+     pch = 19, col = "blue")
+abline(0, 1, col = "red", lwd = 2)
+
+plot(particiones_reg$train$mpg, lm_pred_train,
+     main = "Predicciones vs Reales (Train)",
+     xlab = "MPG Real", ylab = "MPG Predicho",
+     pch = 19, col = "green")
+abline(0, 1, col = "red", lwd = 2)
+par(mfrow = c(1, 1))
+
+# Diagnóstico del modelo
+par(mfrow = c(2, 2))
+plot(lm_model)
+par(mfrow = c(1, 1))
+```
+
+## 3.3 k-NN para Regresión
+
+```{r knn-regresion}
+cat("=== k-NN PARA REGRESIÓN ===\n\n")
+
+# Estandarizar datos
+train_reg_scaled <- as.data.frame(scale(particiones_reg$train))
+test_reg_scaled <- as.data.frame(scale(particiones_reg$test,
+                                       center = attr(scale(particiones_reg$train), "scaled:center"),
+                                       scale = attr(scale(particiones_reg$train), "scaled:scale")))
+
+# Probar diferentes valores de k
+library(FNN)
+k_values_reg <- c(1, 3, 5, 7, 9, 11)
+knn_reg_results <- list()
+
+for(k in k_values_reg) {
+  knn_pred <- knn.reg(train = train_reg_scaled[, -1],
+                      test = test_reg_scaled[, -1],
+                      y = train_reg_scaled$mpg,
+                      k = k)
+  
+  # Desescalar predicciones
+  pred_original <- knn_pred$pred * attr(scale(particiones_reg$train), "scaled:scale")["mpg"] +
+                   attr(scale(particiones_reg$train), "scaled:center")["mpg"]
+  
+  knn_reg_results[[paste0("k=", k)]] <- pred_original
+}
+
+# Comparar k
+cat("Comparación de RMSE para diferentes k:\n")
+rmse_knn <- sapply(knn_reg_results, function(pred) {
+  sqrt(mean((particiones_reg$test$mpg - pred)^2))
+})
+print(data.frame(k = k_values_reg, RMSE = rmse_knn))
+
+# Mejor k
+best_k_reg <- k_values_reg[which.min(rmse_knn)]
+cat("\nMejor k:", best_k_reg, "con RMSE =", min(rmse_knn), "\n")
+```
+
+## 3.4 Árboles de Regresión
+
+```{r arbol-regresion}
+cat("=== ÁRBOL DE REGRESIÓN ===\n\n")
+
+# Entrenar árbol de regresión
+tree_reg_model <- rpart(mpg ~ ., data = particiones_reg$train,
+                        method = "anova",
+                        control = rpart.control(minsplit = 5, cp = 0.01))
+
+print(tree_reg_model)
+
+# Visualizar
+rpart.plot(tree_reg_model,
+           main = "Árbol de Regresión para MPG",
+           box.palette = "Blues",
+           shadow.col = "gray")
+
+# Importancia de variables
+cat("\n=== IMPORTANCIA DE VARIABLES ===\n")
+print(tree_reg_model$variable.importance)
+
+# Predicciones
+tree_reg_pred <- predict(tree_reg_model, particiones_reg$test)
+
+# Gráfico
+plot(particiones_reg$test$mpg, tree_reg_pred,
+     main = "Árbol de Regresión: Predicciones vs Reales",
+     xlab = "MPG Real", ylab = "MPG Predicho",
+     pch = 19, col = "purple")
+abline(0, 1, col = "red", lwd = 2)
+```
+
+## 3.5 Random Forest para Regresión
+
+```{r rf-regresion}
+cat("=== RANDOM FOREST PARA REGRESIÓN ===\n\n")
+
+# Entrenar Random Forest
+rf_reg_model <- randomForest(mpg ~ .,
+                              data = particiones_reg$train,
+                              ntree = 500,
+                              mtry = 3,
+                              importance = TRUE)
+
+print(rf_reg_model)
+
+# Importancia de variables
+cat("\n=== IMPORTANCIA DE VARIABLES ===\n")
+importance(rf_reg_model)
+varImpPlot(rf_reg_model, main = "Importancia de Variables (Regresión)")
+
+# Predicciones
+rf_reg_pred <- predict(rf_reg_model, particiones_reg$test)
+
+# Gráfico
+plot(particiones_reg$test$mpg, rf_reg_pred,
+     main = "Random Forest: Predicciones vs Reales",
+     xlab = "MPG Real", ylab = "MPG Predicho",
+     pch = 19, col = "darkgreen")
+abline(0, 1, col = "red", lwd = 2)
+```
+
+# PARTE 4: EVALUACIÓN DE MODELOS DE REGRESIÓN
+
+## 4.1 Métricas de Regresión
+
+```{r metricas-regresion}
+cat("=== MÉTRICAS DE REGRESIÓN ===\n\n")
+
+# Función para calcular métricas
+calcular_metricas_regresion <- function(real, predicho, modelo_nombre) {
+  mse <- mean((real - predicho)^2)
+  rmse <- sqrt(mse)
+  mae <- mean(abs(real - predicho))
+  
+  # R²
+  ss_res <- sum((real - predicho)^2)
+  ss_tot <- sum((real - mean(real))^2)
+  r2 <- 1 - (ss_res / ss_tot)
+  
+  # MAPE
+  mape <- mean(abs((real - predicho) / real)) * 100
+  
+  cat("=== MODELO:", modelo_nombre, "===\n")
+  cat("MSE:", round(mse, 4), "\n")
+  cat("RMSE:", round(rmse, 4), "\n")
+  cat("MAE:", round(mae, 4), "\n")
+  cat("R²:", round(r2, 4), "\n")
+  cat("MAPE:", round(mape, 2), "%\n")
+  cat(rep("=", 60), "\n\n")
+  
+  return(data.frame(
+    MSE = mse,
+    RMSE = rmse,
+    MAE = mae,
+    R2 = r2,
+    MAPE = mape
+  ))
+}
+
+# Calcular métricas para todos los modelos
+metricas_lm <- calcular_metricas_regresion(particiones_reg$test$mpg, 
+                                            lm_pred_test, "Regresión Lineal")
+
+metricas_knn_reg <- calcular_metricas_regresion(particiones_reg$test$mpg,
+                                                 knn_reg_results[[paste0("k=", best_k_reg)]],
+                                                 paste0("k-NN (k=", best_k_reg, ")"))
+
+metricas_tree_reg <- calcular_metricas_regresion(particiones_reg$test$mpg,
+                                                  tree_reg_pred, "Árbol de Regresión")
+
+metricas_rf_reg <- calcular_metricas_regresion(particiones_reg$test$mpg,
+                                                rf_reg_pred, "Random Forest")
+
+# Comparación
+comparacion_reg <- rbind(
+  data.frame(Modelo = "Regresión Lineal", metricas_lm),
+  data.frame(Modelo = paste0("k-NN (k=", best_k_reg, ")"), metricas_knn_reg),
+  data.frame(Modelo = "Árbol de Regresión", metricas_tree_reg),
+  data.frame(Modelo = "Random Forest", metricas_rf_reg)
+)
+
+cat("=== COMPARACIÓN DE MODELOS DE REGRESIÓN ===\n")
+print(comparacion_reg)
+
+# Visualizar
+comparacion_reg_long <- comparacion_reg %>%
+  dplyr::select(Modelo, RMSE, MAE, R2) %>%
+  pivot_longer(cols = c(RMSE, MAE, R2), 
+               names_to = "Metrica", values_to = "Valor")
+
+ggplot(comparacion_reg_long, aes(x = Modelo, y = Valor, fill = Metrica)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  facet_wrap(~ Metrica, scales = "free_y") +
+  labs(title = "Comparación de Modelos de Regresión") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+### Ejercicio 4.1: Métricas de regresión
+
+**Pregunta 21**: ¿Qué modelo tiene mejor R²?
+
+**Pregunta 22**: ¿El mejor modelo según RMSE es el mismo que según R²?
+
+## 4.2 Análisis de Residuos
+
+```{r analisis-residuos}
+cat("=== ANÁLISIS DE RESIDUOS ===\n\n")
+
+# Función para analizar residuos
+analizar_residuos <- function(real, predicho, modelo_nombre) {
+  residuos <- real - predicho
+  
+  par(mfrow = c(2, 2))
+  
+  # 1. Residuos vs Predichos
+  plot(predicho, residuos,
+       main = paste("Residuos vs Predichos -", modelo_nombre),
+       xlab = "Valores Predichos", ylab = "Residuos",
+       pch = 19, col = "blue")
+  abline(h = 0, col = "red", lwd = 2)
+  
+  # 2. Histograma de residuos
+  hist(residuos, breaks = 10, col = "lightblue",
+       main = paste("Distribución de Residuos -", modelo_nombre),
+       xlab = "Residuos", ylab = "Frecuencia")
+  
+  # 3. Q-Q plot
+  qqnorm(residuos, main = paste("Q-Q Plot -", modelo_nombre))
+  qqline(residuos, col = "red", lwd = 2)
+  
+  # 4. Residuos vs Orden
+  plot(1:length(residuos), residuos,
+       main = paste("Residuos vs Orden -", modelo_nombre),
+       xlab = "Índice", ylab = "Residuos",
+       pch = 19, col = "darkgreen")
+  abline(h = 0, col = "red", lwd = 2)
+  
+  par(mfrow = c(1, 1))
+  
+  # Test de normalidad de Shapiro-Wilk
+  shapiro_test <- shapiro.test(residuos)
+  cat("\nTest de Shapiro-Wilk para", modelo_nombre, ":\n")
+  cat("W =", shapiro_test$statistic, ", p-value =", shapiro_test$p.value, "\n")
+  if(shapiro_test$p.value > 0.05) {
+    cat("Los residuos parecen seguir una distribución normal (p > 0.05)\n\n")
+  } else {
+    cat("Los residuos NO parecen seguir una distribución normal (p <= 0.05)\n\n")
+  }
+}
+
+# Analizar residuos de cada modelo
+analizar_residuos(particiones_reg$test$mpg, lm_pred_test, "Regresión Lineal")
+analizar_residuos(particiones_reg$test$mpg, tree_reg_pred, "Árbol de Regresión")
+analizar_residuos(particiones_reg$test$mpg, rf_reg_pred, "Random Forest")
+```
+
+### Ejercicio 4.2: Residuos
+
+**Pregunta 23**: ¿Los residuos de la regresión lineal cumplen las asunciones de normalidad?
+
+**Pregunta 24**: ¿Hay algún patrón en los residuos que sugiera problemas con el modelo?
+
+# PARTE 5: EVALUACIÓN FINAL EN CONJUNTO DE VALIDACIÓN
+
+## 5.1 Capacidad de Generalización - Clasificación
+
+**¡CRÍTICO!** Hasta ahora hemos usado Train para entrenar y Test para evaluar/comparar modelos. El conjunto de **Validation** NO ha sido tocado y representa datos completamente nuevos. Ahora evaluaremos el modelo final seleccionado en Validation para estimar su verdadera capacidad de generalización.
+
+```{r validacion-final-clasificacion}
+cat("=== EVALUACIÓN FINAL EN CONJUNTO DE VALIDACIÓN (CLASIFICACIÓN) ===\n\n")
+
+cat("RECORDATORIO DE LA PARTICIÓN:\n")
+cat("Train: usado para entrenar los modelos\n")
+cat("Test: usado para comparar y seleccionar el mejor modelo\n")
+cat("Validation: NUNCA USADO hasta ahora - representa datos reales futuros\n\n")
+
+cat("Distribución en Validation:\n")
+print(table(particiones$validation$Species))
+cat("\n")
+
+# Identificar el mejor modelo según Test
+mejor_modelo_nombre <- comparacion$Modelo[which.max(comparacion$Accuracy)]
+cat("Mejor modelo seleccionado (según Test):", mejor_modelo_nombre, "\n")
+cat("Accuracy en Test:", max(comparacion$Accuracy), "\n\n")
+
+# Ahora evaluar ese modelo en Validation
+cat("=== EVALUACIÓN EN VALIDATION (datos nunca vistos) ===\n\n")
+
+# Según los resultados, evaluamos Random Forest (o el mejor según tu ejecución)
+# Predicciones en Validation
+rf_pred_validation <- predict(rf_model, particiones$validation)
+lda_pred_validation <- predict(lda_model, particiones$validation)
+
+# Matriz de confusión en Validation para Random Forest
+cm_rf_validation <- confusionMatrix(rf_pred_validation, particiones$validation$Species)
+
+cat("RANDOM FOREST en VALIDATION:\n")
+print(cm_rf_validation$table)
+cat("\nAccuracy en Validation:", cm_rf_validation$overall["Accuracy"], "\n")
+cat("Kappa en Validation:", cm_rf_validation$overall["Kappa"], "\n\n")
+
+# Comparar rendimiento en Test vs Validation
+cat("=== COMPARACIÓN Test vs Validation (Random Forest) ===\n")
+comparacion_test_val <- data.frame(
+  Conjunto = c("Test", "Validation"),
+  Accuracy = c(cm_rf$overall["Accuracy"], cm_rf_validation$overall["Accuracy"]),
+  Kappa = c(cm_rf$overall["Kappa"], cm_rf_validation$overall["Kappa"])
+)
+print(comparacion_test_val)
+
+# Visualizar
+comparacion_tv_long <- comparacion_test_val %>%
+  pivot_longer(cols = c(Accuracy, Kappa), 
+               names_to = "Metrica", values_to = "Valor")
+
+ggplot(comparacion_tv_long, aes(x = Conjunto, y = Valor, fill = Metrica)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "Random Forest: Test vs Validation",
+       subtitle = "Evaluación de la capacidad de generalización",
+       y = "Valor de la Métrica") +
+  theme_minimal() +
+  ylim(0, 1)
+
+# Análisis de sobreajuste
+diferencia_accuracy <- abs(cm_rf$overall["Accuracy"] - cm_rf_validation$overall["Accuracy"])
+cat("\nDiferencia de Accuracy entre Test y Validation:", 
+    round(diferencia_accuracy, 4), "\n")
+
+if(diferencia_accuracy < 0.05) {
+  cat("✓ Buena generalización: diferencia < 5%\n")
+} else if(diferencia_accuracy < 0.10) {
+  cat("⚠ Generalización aceptable: diferencia entre 5-10%\n")
+} else {
+  cat("✗ Posible sobreajuste: diferencia > 10%\n")
+}
+
+# Evaluación de todos los modelos en Validation para comparación completa
+cat("\n=== EVALUACIÓN DE TODOS LOS MODELOS EN VALIDATION ===\n\n")
+
+# LDA
+lda_pred_val <- predict(lda_model, particiones$validation)
+acc_lda_val <- mean(lda_pred_val$class == particiones$validation$Species)
+
+# k-NN (estandarizar validation)
+val_scaled <- particiones$validation
+val_scaled[, 1:4] <- scale(particiones$validation[, 1:4],
+                           center = means_train, scale = sds_train)
+knn_pred_val <- knn(train = train_scaled[, 1:4],
+                    test = val_scaled[, 1:4],
+                    cl = train_scaled$Species,
+                    k = best_k)
+acc_knn_val <- mean(knn_pred_val == particiones$validation$Species)
+
+# Árbol
+tree_pred_val <- predict(tree_model, particiones$validation, type = "class")
+acc_tree_val <- mean(tree_pred_val == particiones$validation$Species)
+
+# Random Forest
+acc_rf_val <- mean(rf_pred_validation == particiones$validation$Species)
+
+# Naive Bayes
+nb_pred_val <- predict(nb_model, particiones$validation)
+acc_nb_val <- mean(nb_pred_val == particiones$validation$Species)
+
+# Tabla comparativa completa
+comparacion_completa <- data.frame(
+  Modelo = c("LDA", paste0("k-NN (k=", best_k, ")"), 
+             "Árbol de Decisión", "Random Forest", "Naive Bayes"),
+  Accuracy_Test = comparacion$Accuracy,
+  Accuracy_Validation = c(acc_lda_val, acc_knn_val, acc_tree_val, 
+                          acc_rf_val, acc_nb_val),
+  Diferencia = abs(comparacion$Accuracy - c(acc_lda_val, acc_knn_val, 
+                                             acc_tree_val, acc_rf_val, acc_nb_val))
+)
+
+print(comparacion_completa)
+
+# Visualización comparativa
+comp_completa_long <- comparacion_completa %>%
+  dplyr::select(Modelo, Accuracy_Test, Accuracy_Validation) %>%
+  pivot_longer(cols = c(Accuracy_Test, Accuracy_Validation),
+               names_to = "Conjunto", values_to = "Accuracy")
+
+ggplot(comp_completa_long, aes(x = Modelo, y = Accuracy, fill = Conjunto)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "Comparación Test vs Validation - Todos los Modelos",
+       subtitle = "Evaluación de capacidad de generalización") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  ylim(0, 1) +
+  geom_hline(yintercept = 0.95, linetype = "dashed", color = "red", alpha = 0.5)
+```
+
+### Ejercicio 5.1: Interpretación de resultados finales
+
+**Pregunta 25**: ¿El modelo con mejor accuracy en Test también es el mejor en Validation?
+
+**Pregunta 26**: ¿Hay evidencia de sobreajuste en algún modelo? ¿Cuál?
+
+**Pregunta 27**: ¿Cuál es el modelo que recomendarías para producción y por qué?
+
+## 5.2 Capacidad de Generalización - Regresión
+
+```{r validacion-final-regresion}
+cat("=== EVALUACIÓN FINAL EN CONJUNTO DE VALIDACIÓN (REGRESIÓN) ===\n\n")
+
+cat("Distribución de mpg en Validation:\n")
+summary(particiones_reg$validation$mpg)
+cat("\n")
+
+# Identificar mejor modelo según Test
+mejor_modelo_reg <- comparacion_reg$Modelo[which.max(comparacion_reg$R2)]
+cat("Mejor modelo seleccionado (según Test):", mejor_modelo_reg, "\n")
+cat("R² en Test:", max(comparacion_reg$R2), "\n\n")
+
+cat("=== PREDICCIONES EN VALIDATION ===\n\n")
+
+# Predicciones de todos los modelos en Validation
+lm_pred_val <- predict(lm_model, particiones_reg$validation)
+
+# k-NN regresión
+val_reg_scaled <- as.data.frame(scale(particiones_reg$validation,
+                                      center = attr(scale(particiones_reg$train), "scaled:center"),
+                                      scale = attr(scale(particiones_reg$train), "scaled:scale")))
+knn_pred_val_reg <- knn.reg(train = train_reg_scaled[, -1],
+                             test = val_reg_scaled[, -1],
+                             y = train_reg_scaled$mpg,
+                             k = best_k_reg)$pred
+# Desescalar
+knn_pred_val_reg <- knn_pred_val_reg * attr(scale(particiones_reg$train), "scaled:scale")["mpg"] +
+                    attr(scale(particiones_reg$train), "scaled:center")["mpg"]
+
+tree_pred_val_reg <- predict(tree_reg_model, particiones_reg$validation)
+rf_pred_val_reg <- predict(rf_reg_model, particiones_reg$validation)
+
+# Calcular métricas en Validation
+calcular_metricas_val <- function(real, predicho) {
+  mse <- mean((real - predicho)^2)
+  rmse <- sqrt(mse)
+  mae <- mean(abs(real - predicho))
+  ss_res <- sum((real - predicho)^2)
+  ss_tot <- sum((real - mean(real))^2)
+  r2 <- 1 - (ss_res / ss_tot)
+  
+  return(c(MSE = mse, RMSE = rmse, MAE = mae, R2 = r2))
+}
+
+metricas_val_lm <- calcular_metricas_val(particiones_reg$validation$mpg, lm_pred_val)
+metricas_val_knn <- calcular_metricas_val(particiones_reg$validation$mpg, knn_pred_val_reg)
+metricas_val_tree <- calcular_metricas_val(particiones_reg$validation$mpg, tree_pred_val_reg)
+metricas_val_rf <- calcular_metricas_val(particiones_reg$validation$mpg, rf_pred_val_reg)
+
+# Comparación Test vs Validation
+comparacion_reg_completa <- data.frame(
+  Modelo = c("Regresión Lineal", paste0("k-NN (k=", best_k_reg, ")"),
+             "Árbol de Regresión", "Random Forest"),
+  R2_Test = comparacion_reg$R2,
+  R2_Validation = c(metricas_val_lm["R2"], metricas_val_knn["R2"],
+                    metricas_val_tree["R2"], metricas_val_rf["R2"]),
+  RMSE_Test = comparacion_reg$RMSE,
+  RMSE_Validation = c(metricas_val_lm["RMSE"], metricas_val_knn["RMSE"],
+                      metricas_val_tree["RMSE"], metricas_val_rf["RMSE"]),
+  Diferencia_R2 = abs(comparacion_reg$R2 - c(metricas_val_lm["R2"], 
+                                              metricas_val_knn["R2"],
+                                              metricas_val_tree["R2"], 
+                                              metricas_val_rf["R2"]))
+)
+
+cat("=== COMPARACIÓN Test vs Validation (REGRESIÓN) ===\n")
+print(comparacion_reg_completa)
+
+# Visualización R²
+comp_r2_long <- comparacion_reg_completa %>%
+  dplyr::select(Modelo, R2_Test, R2_Validation) %>%
+  pivot_longer(cols = c(R2_Test, R2_Validation),
+               names_to = "Conjunto", values_to = "R2")
+
+ggplot(comp_r2_long, aes(x = Modelo, y = R2, fill = Conjunto)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "R² - Test vs Validation",
+       subtitle = "Evaluación de capacidad de generalización en regresión") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  ylim(0, 1)
+
+# Visualización RMSE
+comp_rmse_long <- comparacion_reg_completa %>%
+  dplyr::select(Modelo, RMSE_Test, RMSE_Validation) %>%
+  pivot_longer(cols = c(RMSE_Test, RMSE_Validation),
+               names_to = "Conjunto", values_to = "RMSE")
+
+ggplot(comp_rmse_long, aes(x = Modelo, y = RMSE, fill = Conjunto)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "RMSE - Test vs Validation",
+       subtitle = "Menor es mejor") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Gráfico de predicciones vs reales para el mejor modelo
+cat("\n=== MEJOR MODELO EN VALIDATION ===\n")
+mejor_idx_val <- which.max(comparacion_reg_completa$R2_Validation)
+cat("Modelo:", comparacion_reg_completa$Modelo[mejor_idx_val], "\n")
+cat("R² en Validation:", comparacion_reg_completa$R2_Validation[mejor_idx_val], "\n")
+
+# Asumiendo que RF es el mejor, graficar
+plot(particiones_reg$validation$mpg, rf_pred_val_reg,
+     main = "Random Forest - Validation: Predicciones vs Reales",
+     xlab = "MPG Real", ylab = "MPG Predicho",
+     pch = 19, col = "darkgreen", cex = 1.5)
+abline(0, 1, col = "red", lwd = 2)
+grid()
+
+# Análisis de sobreajuste
+cat("\n=== ANÁLISIS DE SOBREAJUSTE (REGRESIÓN) ===\n")
+for(i in 1:nrow(comparacion_reg_completa)) {
+  cat("\n", comparacion_reg_completa$Modelo[i], ":\n", sep = "")
+  cat("  Diferencia de R²:", round(comparacion_reg_completa$Diferencia_R2[i], 4), "\n")
+  
+  if(comparacion_reg_completa$Diferencia_R2[i] < 0.05) {
+    cat("  ✓ Buena generalización\n")
+  } else if(comparacion_reg_completa$Diferencia_R2[i] < 0.10) {
+    cat("  ⚠ Generalización aceptable\n")
+  } else {
+    cat("  ✗ Posible sobreajuste\n")
+  }
+}
+```
+
+### Ejercicio 5.2: Generalización en regresión
+
+**Pregunta 28**: ¿Qué modelo de regresión generaliza mejor?
+
+**Pregunta 29**: ¿Hay algún modelo que muestre señales de sobreajuste?
+
+**Pregunta 30**: Si tuvieras que elegir UN modelo para predecir mpg en producción, ¿cuál elegirías y por qué?
+
+## 5.3 Reporte Final y Recomendaciones
+
+```{r reporte-final}
+cat("=== REPORTE FINAL DEL ANÁLISIS ===\n\n")
+
+cat("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
+cat("                    CLASIFICACIÓN                      \n")
+cat("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n")
+
+# Mejor modelo en cada conjunto
+mejor_test_clf <- comparacion$Modelo[which.max(comparacion$Accuracy)]
+mejor_val_clf <- comparacion_completa$Modelo[which.max(comparacion_completa$Accuracy_Validation)]
+
+cat("Modelo con mejor Accuracy en Test:", mejor_test_clf, "\n")
+cat("  Accuracy Test:", round(max(comparacion$Accuracy), 4), "\n\n")
+
+cat("Modelo con mejor Accuracy en Validation:", mejor_val_clf, "\n")
+cat("  Accuracy Validation:", 
+    round(max(comparacion_completa$Accuracy_Validation), 4), "\n\n")
+
+# Modelo más estable (menor diferencia Test-Validation)
+modelo_estable_clf <- comparacion_completa$Modelo[which.min(comparacion_completa$Diferencia)]
+cat("Modelo más estable (menor diferencia Test-Validation):", modelo_estable_clf, "\n")
+cat("  Diferencia:", round(min(comparacion_completa$Diferencia), 4), "\n\n")
+
+cat("RECOMENDACIÓN FINAL (Clasificación):\n")
+cat("→ Para PRODUCCIÓN elegir:", mejor_val_clf, "\n")
+cat("  Razón: Mejor rendimiento en datos nunca vistos (Validation)\n\n")
+
+cat("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
+cat("                      REGRESIÓN                        \n")
+cat("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n")
+
+mejor_test_reg <- comparacion_reg$Modelo[which.max(comparacion_reg$R2)]
+mejor_val_reg <- comparacion_reg_completa$Modelo[which.max(comparacion_reg_completa$R2_Validation)]
+
+cat("Modelo con mejor R² en Test:", mejor_test_reg, "\n")
+cat("  R² Test:", round(max(comparacion_reg$R2), 4), "\n\n")
+
+cat("Modelo con mejor R² en Validation:", mejor_val_reg, "\n")
+cat("  R² Validation:", round(max(comparacion_reg_completa$R2_Validation), 4), "\n\n")
+
+modelo_estable_reg <- comparacion_reg_completa$Modelo[which.min(comparacion_reg_completa$Diferencia_R2)]
+cat("Modelo más estable (menor diferencia R² Test-Validation):", modelo_estable_reg, "\n")
+cat("  Diferencia:", round(min(comparacion_reg_completa$Diferencia_R2), 4), "\n\n")
+
+cat("RECOMENDACIÓN FINAL (Regresión):\n")
+cat("→ Para PRODUCCIÓN elegir:", mejor_val_reg, "\n")
+cat("  Razón: Mejor R² en datos nunca vistos (Validation)\n\n")
+
+cat("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n")
+```
+
+## 5.4 Lecciones Clave sobre Validación
+
+```{r lecciones-clave}
+cat("=== LECCIONES CLAVE SOBRE VALIDACIÓN Y GENERALIZACIÓN ===\n\n")
+
+cat("1. PARTICIÓN DE DATOS (Train/Test/Validation):\n")
+cat("   • Train: entrenar modelos\n")
+cat("   • Test: comparar modelos y seleccionar el mejor\n")
+cat("   • Validation: NUNCA tocar hasta la evaluación final\n")
+cat("   • Validation simula datos reales del futuro\n\n")
+
+cat("2. SOBREAJUSTE (Overfitting):\n")
+cat("   • Si Test >> Validation: el modelo memorizó el Test\n")
+cat("   • Síntoma: gran diferencia entre rendimiento Test y Validation\n")
+cat("   • Solución: modelos más simples, regularización, más datos\n\n")
+
+cat("3. CAPACIDAD DE GENERALIZACIÓN:\n")
+cat("   • El objetivo NO es maximizar accuracy/R² en Train o Test\n")
+cat("   • El objetivo ES tener buen rendimiento en datos NUEVOS\n")
+cat("   • Validation nos da una estimación honesta de esto\n\n")
+
+cat("4. SELECCIÓN DE MODELO:\n")
+cat("   • NO elegir el modelo solo por Test\n")
+cat("   • Considerar: rendimiento en Validation, estabilidad, interpretabilidad\n")
+cat("   • A veces un modelo ligeramente peor en Test pero más estable es mejor\n\n")
+
+cat("5. VALIDACIÓN CRUZADA:\n")
+cat("   • Útil cuando tenemos pocos datos\n")
+cat("   • Nos da estimación más robusta del rendimiento\n")
+cat("   • Pero Validation sigue siendo crucial para evaluación final\n\n")
+
+cat("6. EN PRODUCCIÓN:\n")
+cat("   • El modelo debe funcionar bien en datos que NUNCA ha visto\n")
+cat("   • Validation es nuestra mejor aproximación a esto\n")
+cat("   • Monitorear rendimiento en producción continuamente\n\n")
+```
+
+# CONCLUSIONES Y RECOMENDACIONES
+
+## Resumen de Resultados
+
+```{r resumen-final}
+cat("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
+cat("                    RESUMEN EJECUTIVO FINAL                     \n")
+cat("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n")
+
+cat("NOTA: Los resultados de VALIDATION representan el rendimiento esperado\n")
+cat("      en PRODUCCIÓN (datos reales nuevos nunca vistos).\n\n")
+
+cat("┌─────────────────────────────────────────────────────────────┐\n")
+cat("│                   CLASIFICACIÓN (Iris)                      │\n")
+cat("└─────────────────────────────────────────────────────────────┘\n\n")
+
+cat("Mejor modelo en Test:", 
+    comparacion$Modelo[which.max(comparacion$Accuracy)], "\n")
+cat("  Accuracy Test:", round(max(comparacion$Accuracy), 4), "\n\n")
+
+cat("Mejor modelo en Validation (RECOMENDADO PARA PRODUCCIÓN):\n")
+cat("  →", comparacion_completa$Modelo[which.max(comparacion_completa$Accuracy_Validation)], "\n")
+cat("  Accuracy Validation:", 
+    round(max(comparacion_completa$Accuracy_Validation), 4), "\n")
+cat("  Estabilidad (diferencia Test-Val):", 
+    round(comparacion_completa$Diferencia[which.max(comparacion_completa$Accuracy_Validation)], 4), "\n\n")
+
+cat("┌─────────────────────────────────────────────────────────────┐\n")
+cat("│                   REGRESIÓN (mtcars)                        │\n")
+cat("└─────────────────────────────────────────────────────────────┘\n\n")
+
+cat("Mejor modelo en Test:", 
+    comparacion_reg$Modelo[which.max(comparacion_reg$R2)], "\n")
+cat("  R² Test:", round(max(comparacion_reg$R2), 4), "\n")
+cat("  RMSE Test:", round(min(comparacion_reg$RMSE), 4), "\n\n")
+
+cat("Mejor modelo en Validation (RECOMENDADO PARA PRODUCCIÓN):\n")
+cat("  →", comparacion_reg_completa$Modelo[which.max(comparacion_reg_completa$R2_Validation)], "\n")
+cat("  R² Validation:", 
+    round(max(comparacion_reg_completa$R2_Validation), 4), "\n")
+cat("  RMSE Validation:", 
+    round(comparacion_reg_completa$RMSE_Validation[which.max(comparacion_reg_completa$R2_Validation)], 4), "\n")
+cat("  Estabilidad (diferencia R² Test-Val):", 
+    round(comparacion_reg_completa$Diferencia_R2[which.max(comparacion_reg_completa$R2_Validation)], 4), "\n\n")
+
+cat("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n")
+
+cat("=== LECCIONES APRENDIDAS ===\n\n")
+cat("1. PARTICIÓN DE DATOS:\n")
+cat("   • Train (60%) para entrenar modelos\n")
+cat("   • Test (20%) para comparar y seleccionar modelos\n")
+cat("   • Validation (20%) SOLO para evaluación final - NUNCA para desarrollo\n\n")
+
+cat("2. GENERALIZACIÓN:\n")
+cat("   • El rendimiento en Validation es el ÚNICO indicador fiable\n")
+cat("     del rendimiento en producción\n")
+cat("   • NO seleccionar modelos únicamente por rendimiento en Test\n")
+cat("   • Diferencias grandes Test-Validation indican sobreajuste\n\n")
+
+cat("3. SELECCIÓN DE MODELO:\n")
+cat("   • Considerar: rendimiento en Validation, estabilidad, interpretabilidad\n")
+cat("   • Random Forest: excelente rendimiento pero menor interpretabilidad\n")
+cat("   • LDA/Regresión Lineal: más interpretables, asunciones más fuertes\n")
+cat("   • k-NN: simple pero sensible a escala y k\n\n")
+
+cat("4. EVALUACIÓN:\n")
+cat("   • Múltiples métricas: accuracy, precision, recall, F1, AUC (clasificación)\n")
+cat("   • R², RMSE, MAE, MAPE (regresión)\n")
+cat("   • Matrices de confusión revelan patrones de error\n")
+cat("   • Curvas ROC para evaluar trade-offs sensibilidad-especificidad\n\n")
+
+cat("5. PREPROCESAMIENTO:\n")
+cat("   • Estandarización CRUCIAL para k-NN, LDA\n")
+cat("   • Árboles y Random Forest robustos a escala\n")
+cat("   • NUNCA usar estadísticas de Test/Validation para estandarizar\n\n")
+
+cat("6. VALIDACIÓN CRUZADA:\n")
+cat("   • Esencial para optimización de hiperparámetros\n")
+cat("   • Reduce varianza de estimaciones de rendimiento\n")
+cat("   • Especialmente útil con datasets pequeños\n\n")
+
+cat("7. EN PRODUCCIÓN:\n")
+cat("   • Monitorear rendimiento continuamente (concept drift)\n")
+cat("   • Re-entrenar periódicamente con nuevos datos\n")
+cat("   • Documentar versiones de modelos y datos usados\n")
+cat("   • Considerar tiempo de inferencia, no solo accuracy\n\n")
+```
+
+## Ejercicios Adicionales
+
+### Ejercicio Final 1: Datos Desbalanceados
+
+Crea un dataset desbalanceado modificando iris (90% setosa, 5% versicolor, 5% virginica) y compara el rendimiento de los modelos. ¿Cómo afecta el desbalance?
+
+### Ejercicio Final 2: Feature Engineering
+
+Crea nuevas variables en mtcars (por ejemplo, interacciones entre variables) y evalúa si mejoran el rendimiento de los modelos de regresión.
+
+### Ejercicio Final 3: Ensemble
+
+Implementa un modelo ensemble que combine las predicciones de LDA, k-NN y Random Forest usando votación mayoritaria para clasificación.
+
+### Ejercicio Final 4: Análisis de Importancia
+
+Compara la importancia de variables según diferentes modelos (árbol, Random Forest). ¿Coinciden en cuáles son las variables más importantes?
+
+# Referencias
+
+- James, G., Witten, D., Hastie, T., & Tibshirani, R. (2013). *An introduction to statistical learning*. Springer.
+- Hastie, T., Tibshirani, R., & Friedman, J. (2009). *The elements of statistical learning*. Springer.
+- Kuhn, M., & Johnson, K. (2013). *Applied predictive modeling*. Springer.
+- Murphy, K. P. (2012). *Machine learning: a probabilistic perspective*. MIT press.
+
+---
+
+**Fin del Laboratorio 6**
