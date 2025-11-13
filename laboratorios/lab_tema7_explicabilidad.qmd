@@ -1,0 +1,1049 @@
+---
+title: "Laboratorio 7: Explicabilidad e Interpretabilidad de Modelos"
+subtitle: "Técnicas XAI (eXplainable AI) aplicadas a Random Forest"
+author: "Minería de Datos"
+format: 
+  html:
+    toc: true
+    toc-depth: 3
+    toc-title: "Contenidos"
+    number-sections: true
+    theme: cosmo
+    code-fold: false
+    code-tools: true
+    df-print: paged
+    fig-width: 10
+    fig-height: 6
+    embed-resources: true
+    self-contained: true
+execute:
+  warning: false
+  message: false
+  echo: true
+lang: es
+---
+
+# INTRODUCCIÓN A LA EXPLICABILIDAD
+
+## ¿Qué es XAI (eXplainable AI)?
+
+La **explicabilidad** o **interpretabilidad** de modelos de machine learning se refiere a la capacidad de entender y justificar las predicciones que hace un modelo.
+
+### ¿Por qué es importante?
+
+1. **Confianza**: Los stakeholders necesitan entender por qué el modelo toma ciertas decisiones
+2. **Regulación**: GDPR y otras regulaciones requieren "derecho a la explicación"
+3. **Debugging**: Detectar sesgos, errores o comportamientos inesperados
+4. **Mejora**: Identificar qué variables son importantes para mejorar la recolección de datos
+5. **Ética**: Asegurar que las decisiones automatizadas son justas y no discriminatorias
+
+### Tipos de Explicabilidad
+
+**1. Explicabilidad Global (Model-level)**
+- ¿Cómo funciona el modelo en general?
+- ¿Qué variables son más importantes?
+- ¿Cómo se relacionan las variables con la predicción?
+
+**2. Explicabilidad Local (Prediction-level)**
+- ¿Por qué el modelo hizo esta predicción específica?
+- ¿Qué variables contribuyeron más a esta decisión?
+- ¿Qué cambios harían que la predicción fuera diferente?
+
+### Modelos Interpretables vs Cajas Negras
+
+```{r setup}
+# Cargar librerías necesarias
+library(tidyverse)
+library(randomForest)
+library(pdp)           # Partial Dependence Plots
+library(DALEX)         # Dashboard for eXplanations
+library(iml)           # Interpretable Machine Learning
+library(caret)
+library(gridExtra)
+library(reshape2)
+
+# Configurar semilla para reproducibilidad
+set.seed(123)
+
+# Crear tabla comparativa
+interpretabilidad <- data.frame(
+  Modelo = c("Regresión Lineal", "Árbol de Decisión", "Naive Bayes", 
+             "k-NN", "Random Forest", "SVM", "Redes Neuronales"),
+  Interpretabilidad = c("Alta", "Alta", "Media", "Baja", "Baja", "Muy Baja", "Muy Baja"),
+  Rendimiento = c("Bajo-Medio", "Medio", "Medio", "Medio-Alto", "Alto", "Alto", "Muy Alto"),
+  Necesita_XAI = c("No", "No", "Opcional", "Sí", "Sí", "Sí", "Sí")
+)
+
+print(interpretabilidad)
+```
+
+**Paradoja de Interpretabilidad-Rendimiento**: Los modelos más precisos (Random Forest, XGBoost, Deep Learning) suelen ser menos interpretables. ¡Por eso necesitamos XAI!
+
+---
+
+# DATASET Y PREPARACIÓN
+
+Usaremos el dataset **Wine Quality** para predecir la calidad del vino basándonos en propiedades fisicoquímicas.
+
+## Carga y Exploración
+
+```{r carga-datos}
+# Cargar dataset de vinos tintos
+url <- "https://archive.ics.uci.edu/ml/machine-learning-databases/wine-quality/winequality-red.csv"
+wine <- read.csv(url, sep = ";")
+
+cat("=== ESTRUCTURA DEL DATASET ===\n")
+str(wine)
+
+cat("\n=== PRIMERAS FILAS ===\n")
+head(wine)
+
+cat("\n=== RESUMEN ESTADÍSTICO ===\n")
+summary(wine)
+
+# Convertir quality a factor para clasificación
+# Simplificamos en 3 categorías: Baja (3-5), Media (6), Alta (7-8)
+wine <- wine %>%
+  mutate(quality_class = case_when(
+    quality <= 5 ~ "Baja",
+    quality == 6 ~ "Media",
+    quality >= 7 ~ "Alta"
+  )) %>%
+  mutate(quality_class = factor(quality_class, levels = c("Baja", "Media", "Alta")))
+
+cat("\n=== DISTRIBUCIÓN DE CALIDAD ===\n")
+table(wine$quality_class)
+
+# Visualizar distribución
+ggplot(wine, aes(x = quality_class, fill = quality_class)) +
+  geom_bar() +
+  geom_text(stat = "count", aes(label = after_stat(count)), vjust = -0.5) +
+  labs(title = "Distribución de Calidad del Vino",
+       x = "Calidad", y = "Frecuencia") +
+  theme_minimal() +
+  scale_fill_manual(values = c("Baja" = "#d73027", "Media" = "#fee08b", "Alta" = "#1a9850"))
+```
+
+### Ejercicio 1.1: Exploración
+
+**Pregunta 1**: ¿El dataset está balanceado? ¿Cómo podría afectar esto a la interpretabilidad?
+
+**Pregunta 2**: ¿Qué variables crees que serán más importantes para predecir la calidad? (Hipótesis inicial)
+
+## Análisis Exploratorio de Variables
+
+```{r eda-variables}
+# Correlaciones
+cat("=== MATRIZ DE CORRELACIONES ===\n")
+correlaciones <- cor(wine[, 1:11])
+print(round(correlaciones, 2))
+
+# Visualizar correlaciones
+library(corrplot)
+corrplot(correlaciones, method = "color", type = "upper", 
+         tl.col = "black", tl.srt = 45,
+         title = "Correlaciones entre Variables Fisicoquímicas",
+         mar = c(0,0,2,0))
+
+# Boxplots por calidad
+wine_long <- wine %>%
+  dplyr::select(-quality) %>%
+  pivot_longer(cols = -quality_class, names_to = "Variable", values_to = "Valor")
+
+ggplot(wine_long %>% filter(Variable %in% c("alcohol", "volatile.acidity", 
+                                             "sulphates", "citric.acid")), 
+       aes(x = quality_class, y = Valor, fill = quality_class)) +
+  geom_boxplot() +
+  facet_wrap(~Variable, scales = "free_y", ncol = 2) +
+  labs(title = "Distribución de Variables Clave por Calidad",
+       x = "Calidad", y = "Valor") +
+  theme_minimal() +
+  scale_fill_manual(values = c("Baja" = "#d73027", "Media" = "#fee08b", "Alta" = "#1a9850"))
+```
+
+## Partición de Datos
+
+```{r particion}
+# Partición Train (70%) - Test (30%)
+set.seed(42)
+train_idx <- createDataPartition(wine$quality_class, p = 0.7, list = FALSE)
+
+train_data <- wine[train_idx, ]
+test_data <- wine[-train_idx, ]
+
+cat("Tamaño Train:", nrow(train_data), "\n")
+cat("Tamaño Test:", nrow(test_data), "\n\n")
+
+cat("Distribución en Train:\n")
+print(table(train_data$quality_class))
+
+cat("\nDistribución en Test:\n")
+print(table(test_data$quality_class))
+```
+
+---
+
+# MODELO BASE: RANDOM FOREST
+
+Entrenaremos un Random Forest como nuestro modelo "caja negra" a explicar.
+
+## Entrenamiento del Modelo
+
+```{r entrenar-rf}
+cat("=== ENTRENANDO RANDOM FOREST ===\n\n")
+
+# Preparar datos (eliminar quality y quality_class para features)
+X_train <- train_data %>% dplyr::select(-quality, -quality_class)
+y_train <- train_data$quality_class
+
+X_test <- test_data %>% dplyr::select(-quality, -quality_class)
+y_test <- test_data$quality_class
+
+# Entrenar Random Forest
+rf_model <- randomForest(
+  x = X_train,
+  y = y_train,
+  ntree = 500,
+  mtry = 3,
+  importance = TRUE,
+  proximity = TRUE
+)
+
+print(rf_model)
+
+# Predicciones en Test
+rf_pred <- predict(rf_model, X_test)
+
+# Matriz de confusión
+cm <- confusionMatrix(rf_pred, y_test)
+print(cm)
+
+cat("\n=== RENDIMIENTO DEL MODELO ===\n")
+cat("Accuracy:", round(cm$overall["Accuracy"], 4), "\n")
+cat("Kappa:", round(cm$overall["Kappa"], 4), "\n")
+```
+
+### Ejercicio 2.1: Evaluación básica
+
+**Pregunta 3**: ¿El modelo tiene buen rendimiento? ¿En qué clase comete más errores?
+
+**Pregunta 4**: Sin técnicas de explicabilidad, ¿podrías decir POR QUÉ el modelo clasifica un vino como "Alta" calidad?
+
+---
+
+# EXPLICABILIDAD GLOBAL
+
+## 4.1 Importancia de Variables
+
+La técnica más básica: ¿qué variables usa más el modelo?
+
+```{r importancia-variables}
+cat("=== IMPORTANCIA DE VARIABLES ===\n\n")
+
+# Extraer importancia
+importancia <- importance(rf_model)
+print(round(importancia, 2))
+
+# Crear dataframe para visualización
+importancia_df <- data.frame(
+  Variable = rownames(importancia),
+  MeanDecreaseAccuracy = importancia[, "MeanDecreaseAccuracy"],
+  MeanDecreaseGini = importancia[, "MeanDecreaseGini"]
+) %>%
+  arrange(desc(MeanDecreaseAccuracy))
+
+print(importancia_df)
+
+# Visualizar
+p1 <- ggplot(importancia_df, aes(x = reorder(Variable, MeanDecreaseAccuracy), 
+                                  y = MeanDecreaseAccuracy)) +
+  geom_col(fill = "steelblue") +
+  coord_flip() +
+  labs(title = "Importancia de Variables (Mean Decrease Accuracy)",
+       subtitle = "Mayor valor = más importante para la precisión",
+       x = NULL, y = "Mean Decrease Accuracy") +
+  theme_minimal()
+
+p2 <- ggplot(importancia_df, aes(x = reorder(Variable, MeanDecreaseGini), 
+                                  y = MeanDecreaseGini)) +
+  geom_col(fill = "darkorange") +
+  coord_flip() +
+  labs(title = "Importancia de Variables (Mean Decrease Gini)",
+       subtitle = "Mayor valor = más importante para la pureza de nodos",
+       x = NULL, y = "Mean Decrease Gini") +
+  theme_minimal()
+
+grid.arrange(p1, p2, ncol = 1)
+```
+
+### Interpretación
+
+- **Mean Decrease Accuracy**: Si permuto esta variable aleatoriamente, ¿cuánto baja la accuracy?
+- **Mean Decrease Gini**: ¿Cuánto contribuye esta variable a la pureza de los nodos?
+
+**IMPORTANTE**: Importancia de variables puede ser engañosa con variables correlacionadas.
+
+### Ejercicio 4.1: Importancia
+
+**Pregunta 5**: ¿Cuáles son las 3 variables más importantes según ambas métricas?
+
+**Pregunta 6**: ¿Coinciden con tu hipótesis inicial de la Pregunta 2?
+
+## 4.2 Partial Dependence Plots (PDP)
+
+Los PDPs muestran **cómo cambia la predicción cuando cambia una variable**, manteniendo las demás constantes (promediadas).
+
+```{r pdp-analisis}
+cat("=== PARTIAL DEPENDENCE PLOTS ===\n\n")
+
+# Seleccionar las 4 variables más importantes
+top_vars <- importancia_df$Variable[1:4]
+
+cat("Analizando variables:", paste(top_vars, collapse = ", "), "\n\n")
+
+# Crear PDPs para las top 4 variables
+pdp_plots <- list()
+
+for(var in top_vars) {
+  # Calcular partial dependence
+  pd <- partial(rf_model, pred.var = var, train = X_train, 
+                type = "classification", which.class = "Alta",
+                prob = TRUE, plot = FALSE)
+  
+  # Crear plot
+  p <- ggplot(pd, aes_string(x = var, y = "yhat")) +
+    geom_line(color = "darkgreen", size = 1.2) +
+    geom_smooth(se = TRUE, alpha = 0.2) +
+    labs(title = paste("PDP:", var),
+         x = var, y = "Prob. Calidad = Alta") +
+    theme_minimal()
+  
+  pdp_plots[[var]] <- p
+}
+
+# Mostrar en grid
+do.call(grid.arrange, c(pdp_plots, ncol = 2))
+```
+
+### Interpretación de PDPs
+
+- **Línea ascendente**: A mayor valor de la variable, mayor probabilidad de la clase
+- **Línea descendente**: A mayor valor, menor probabilidad
+- **Línea plana**: La variable no afecta mucho la predicción
+- **No lineal**: Relación compleja (umbrales, forma de U, etc.)
+
+### Ejercicio 4.2: PDPs
+
+**Pregunta 7**: ¿Qué relación tiene el alcohol con la calidad alta? ¿Es lineal?
+
+**Pregunta 8**: ¿Hay alguna variable con efecto de umbral (cambia drásticamente en cierto punto)?
+
+## 4.3 Interacciones entre Variables (ICE plots y PDP 2D)
+
+Las interacciones ocurren cuando el efecto de una variable depende del valor de otra.
+
+```{r interacciones}
+cat("=== ANÁLISIS DE INTERACCIONES ===\n\n")
+
+# PDP 2D para las dos variables más importantes
+top2_vars <- importancia_df$Variable[1:2]
+
+cat("Analizando interacción:", top2_vars[1], "y", top2_vars[2], "\n\n")
+
+# Partial dependence 2D
+pd_2d <- partial(rf_model, pred.var = top2_vars, train = X_train,
+                 type = "classification", which.class = "Alta",
+                 prob = TRUE, chull = TRUE, plot = FALSE)
+
+# Visualizar
+ggplot(pd_2d, aes_string(x = top2_vars[1], y = top2_vars[2], fill = "yhat")) +
+  geom_tile() +
+  scale_fill_viridis_c(option = "plasma") +
+  labs(title = paste("Interacción:", top2_vars[1], "×", top2_vars[2]),
+       subtitle = "Probabilidad de Calidad = Alta",
+       fill = "Prob.") +
+  theme_minimal()
+
+# ICE Plots (Individual Conditional Expectation)
+# Muestra cómo cada observación individual cambia con una variable
+cat("\n=== ICE PLOTS (Individual Conditional Expectation) ===\n\n")
+
+# Usar librería iml para ICE plots
+# Crear predictor
+predictor <- Predictor$new(
+  model = rf_model, 
+  data = X_train, 
+  y = y_train,
+  type = "prob"
+)
+
+# ICE plot para la variable más importante
+var_top <- top_vars[1]
+ice <- FeatureEffect$new(predictor, feature = var_top, method = "pdp+ice")
+
+# Plot
+plot(ice) +
+  labs(title = paste("ICE Plot:", var_top),
+       subtitle = "Líneas grises = observaciones individuales, Línea amarilla = promedio (PDP)") +
+  theme_minimal()
+```
+
+### Ejercicio 4.3: Interacciones
+
+**Pregunta 9**: ¿Hay interacción visible entre las dos variables principales?
+
+**Pregunta 10**: En los ICE plots, ¿todas las observaciones siguen la misma tendencia o hay heterogeneidad?
+
+---
+
+# EXPLICABILIDAD LOCAL
+
+## 5.1 LIME (Local Interpretable Model-agnostic Explanations)
+
+LIME explica **una predicción específica** ajustando un modelo simple (lineal) localmente alrededor de esa observación.
+
+### Concepto de LIME
+
+1. Selecciona una observación a explicar
+2. Genera datos sintéticos similares (perturbaciones)
+3. Predice con el modelo complejo en esos datos
+4. Ajusta un modelo simple (lineal) localmente
+5. El modelo simple explica la predicción local
+
+```{r lime-setup}
+cat("=== LIME: EXPLICACIONES LOCALES ===\n\n")
+
+# Necesitamos una función de predicción que devuelva probabilidades
+predict_function <- function(model, newdata) {
+  predict(model, newdata, type = "prob")
+}
+
+# Crear explainer de LIME usando iml
+explainer_lime <- LocalModel$new(predictor, x.interest = X_test[1, ], k = 5)
+
+# Explicación de la primera observación del test
+cat("OBSERVACIÓN A EXPLICAR:\n")
+print(X_test[1, ])
+
+cat("\nPREDICCIÓN DEL MODELO:\n")
+pred_prob <- predict(rf_model, X_test[1, ], type = "prob")
+print(pred_prob)
+cat("\nClase predicha:", as.character(rf_pred[1]), "\n\n")
+
+# Visualizar explicación
+plot(explainer_lime) +
+  labs(title = "LIME: Explicación Local (Observación 1)",
+       subtitle = paste("Predicción:", rf_pred[1])) +
+  theme_minimal()
+
+cat("\nRESULTADOS LIME:\n")
+print(explainer_lime$results)
+```
+
+### Explicar múltiples observaciones
+
+```{r lime-multiple}
+# Explicar algunas observaciones interesantes
+
+# Función para explicar y visualizar
+explicar_observacion <- function(idx, datos, modelo, predictor_obj) {
+  cat("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
+  cat("OBSERVACIÓN", idx, "\n")
+  cat("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
+  
+  # Mostrar valores
+  cat("\nValores de las variables:\n")
+  print(datos[idx, ])
+  
+  # Predicción
+  pred_prob <- predict(modelo, datos[idx, ], type = "prob")
+  cat("\nProbabilidades predichas:\n")
+  print(pred_prob)
+  
+  # Clase predicha
+  pred_class <- predict(modelo, datos[idx, ])
+  cat("\nClase predicha:", as.character(pred_class), "\n")
+  
+  # LIME
+  lime_local <- LocalModel$new(predictor_obj, x.interest = datos[idx, ], k = 5)
+  
+  p <- plot(lime_local) +
+    labs(title = paste("LIME - Observación", idx),
+         subtitle = paste("Predicción:", pred_class)) +
+    theme_minimal()
+  
+  print(p)
+  
+  return(lime_local)
+}
+
+# Explicar 3 observaciones diferentes
+obs_indices <- c(1, 50, 100)
+
+for(idx in obs_indices) {
+  explicar_observacion(idx, X_test, rf_model, predictor)
+}
+```
+
+### Ejercicio 5.1: LIME
+
+**Pregunta 11**: ¿Las variables importantes cambian entre diferentes observaciones?
+
+**Pregunta 12**: ¿LIME ayuda a entender POR QUÉ el modelo hizo una predicción específica?
+
+## 5.2 SHAPLEY Values
+
+Los valores SHAPLEY vienen de la teoría de juegos y distribuyen el "crédito" de una predicción entre las variables de forma justa.
+
+### Concepto de SHAPLEY
+
+- Mide la **contribución marginal** de cada variable
+- Considera **todas las combinaciones posibles** de variables
+- Propiedades matemáticas deseables (eficiencia, simetría, etc.)
+- Más robusto que LIME pero más costoso computacionalmente
+
+```{r shapley-setup}
+cat("=== SHAPLEY VALUES ===\n\n")
+
+# Usar iml para calcular Shapley values
+shapley_explainer <- Shapley$new(predictor, x.interest = X_test[1, ])
+
+cat("SHAPLEY VALUES para Observación 1:\n")
+print(shapley_explainer$results)
+
+# Visualizar
+plot(shapley_explainer) +
+  labs(title = "Shapley Values - Observación 1",
+       subtitle = paste("Predicción:", rf_pred[1])) +
+  theme_minimal()
+```
+
+### Comparación LIME vs SHAPLEY
+
+```{r lime-vs-shapley}
+cat("=== COMPARACIÓN LIME vs SHAPLEY ===\n\n")
+
+# Para la misma observación
+idx <- 1
+
+# LIME
+lime_exp <- LocalModel$new(predictor, x.interest = X_test[idx, ], k = 5)
+lime_results <- lime_exp$results %>%
+  arrange(desc(abs(effect))) %>%
+  head(5) %>%
+  mutate(Metodo = "LIME")
+
+# SHAPLEY
+shap_exp <- Shapley$new(predictor, x.interest = X_test[idx, ])
+shap_results <- shap_exp$results %>%
+  arrange(desc(abs(phi))) %>%
+  head(5) %>%
+  dplyr::select(feature.value, phi) %>%
+  rename(effect = phi) %>%
+  mutate(Metodo = "SHAPLEY")
+
+cat("Top 5 variables según LIME:\n")
+print(lime_results %>% dplyr::select(feature.value, effect))
+
+cat("\nTop 5 variables según SHAPLEY:\n")
+print(shap_results %>% dplyr::select(feature.value, effect))
+
+# Visualización comparativa
+p1 <- plot(lime_exp) + 
+  labs(title = "LIME") + 
+  theme_minimal()
+
+p2 <- plot(shap_exp) + 
+  labs(title = "SHAPLEY") + 
+  theme_minimal()
+
+grid.arrange(p1, p2, ncol = 2)
+```
+
+### Ejercicio 5.2: SHAPLEY
+
+**Pregunta 13**: ¿LIME y SHAPLEY dan explicaciones similares o diferentes?
+
+**Pregunta 14**: ¿Cuál de las dos técnicas te parece más confiable y por qué?
+
+---
+
+# EXPLICABILIDAD CON DALEX
+
+DALEX (Descriptive mAchine Learning EXplanations) es un framework completo para explicabilidad.
+
+## 6.1 Crear Explainer DALEX
+
+```{r dalex-setup}
+cat("=== DALEX: Framework Completo ===\n\n")
+
+# Crear explainer
+# Para clasificación multiclase, y debe ser el factor original
+explainer_dalex <- DALEX::explain(
+  model = rf_model,
+  data = X_test,
+  y = y_test,
+  label = "Random Forest",
+  predict_function = function(model, newdata) {
+    predict(model, newdata, type = "prob")
+  }
+)
+
+print(explainer_dalex)
+```
+
+## 6.2 Model Performance
+
+```{r dalex-performance}
+cat("=== MODEL PERFORMANCE (DALEX) ===\n\n")
+
+# Para clasificación multiclase, usamos residuos personalizados
+# Calculamos predicciones
+preds_dalex <- predict(rf_model, X_test)
+
+# Matriz de confusión
+cm_dalex <- confusionMatrix(preds_dalex, y_test)
+print(cm_dalex)
+
+# Calcular residuos manualmente (1 si acierto, 0 si falla)
+residuos <- ifelse(preds_dalex == y_test, 0, 1)
+
+cat("\nTasa de error:", mean(residuos), "\n")
+cat("Accuracy:", mean(preds_dalex == y_test), "\n")
+
+# Visualizar distribución de aciertos/fallos
+df_performance <- data.frame(
+  Real = y_test,
+  Predicho = preds_dalex,
+  Correcto = preds_dalex == y_test
+)
+
+ggplot(df_performance, aes(x = Real, fill = Correcto)) +
+  geom_bar(position = "fill") +
+  labs(title = "Proporción de Aciertos por Clase",
+       y = "Proporción", x = "Clase Real") +
+  scale_fill_manual(values = c("FALSE" = "#d73027", "TRUE" = "#1a9850")) +
+  theme_minimal()
+```
+
+## 6.3 Variable Importance (DALEX)
+
+```{r dalex-importance}
+cat("=== VARIABLE IMPORTANCE (DALEX) ===\n\n")
+
+# Calcular importancia mediante permutación
+vi <- model_parts(explainer_dalex, type = "difference")
+
+print(vi)
+
+plot(vi) +
+  labs(title = "Importancia de Variables (DALEX)",
+       subtitle = "Basado en permutación - pérdida de performance") +
+  theme_minimal()
+```
+
+## 6.4 Partial Dependence (DALEX)
+
+```{r dalex-pdp}
+cat("=== PARTIAL DEPENDENCE (DALEX) ===\n\n")
+
+# PDP para las variables más importantes
+# Especificamos la clase de interés ("Alta")
+pdp_alcohol <- model_profile(explainer_dalex, 
+                              variables = "alcohol",
+                              type = "partial")
+
+pdp_sulphates <- model_profile(explainer_dalex, 
+                                variables = "sulphates",
+                                type = "partial")
+
+pdp_volatile <- model_profile(explainer_dalex, 
+                               variables = "volatile.acidity",
+                               type = "partial")
+
+# Plot
+p1 <- plot(pdp_alcohol) + 
+  labs(title = "PDP: Alcohol") +
+  theme_minimal()
+
+p2 <- plot(pdp_sulphates) + 
+  labs(title = "PDP: Sulphates") +
+  theme_minimal()
+
+p3 <- plot(pdp_volatile) + 
+  labs(title = "PDP: Volatile Acidity") +
+  theme_minimal()
+
+grid.arrange(p1, p2, p3, ncol = 1)
+```
+
+## 6.5 Break Down (similar a SHAPLEY)
+
+```{r dalex-breakdown}
+cat("=== BREAK DOWN PLOTS (DALEX) ===\n\n")
+
+# Para observación específica
+bd <- predict_parts(explainer_dalex, new_observation = X_test[1, ], 
+                    type = "break_down")
+
+print(bd)
+
+plot(bd) +
+  labs(title = "Break Down - Observación 1",
+       subtitle = "Contribución de cada variable a la predicción") +
+  theme_minimal()
+
+# Comparar varias observaciones
+bd_1 <- predict_parts(explainer_dalex, new_observation = X_test[1, ], 
+                      type = "break_down")
+bd_50 <- predict_parts(explainer_dalex, new_observation = X_test[50, ], 
+                       type = "break_down")
+bd_100 <- predict_parts(explainer_dalex, new_observation = X_test[100, ], 
+                        type = "break_down")
+
+plot(bd_1, bd_50, bd_100) +
+  labs(title = "Comparación Break Down - 3 Observaciones") +
+  theme_minimal()
+```
+
+### Ejercicio 6.1: DALEX
+
+**Pregunta 15**: ¿Qué ventajas tiene DALEX sobre usar las técnicas por separado?
+
+**Pregunta 16**: ¿Los resultados de DALEX coinciden con los de iml (LIME/SHAPLEY)?
+
+---
+
+# CASOS DE USO PRÁCTICOS
+
+## 7.1 Explicar un Vino de Alta Calidad
+
+```{r caso-alta-calidad}
+cat("=== CASO 1: Explicar un Vino de ALTA Calidad ===\n\n")
+
+# Buscar un vino de alta calidad bien clasificado
+vinos_alta <- which(y_test == "Alta" & rf_pred == "Alta")
+idx_alta <- vinos_alta[1]
+
+cat("Observación:", idx_alta, "\n")
+cat("Valores reales:\n")
+print(X_test[idx_alta, ])
+
+cat("\nClase real:", as.character(y_test[idx_alta]), "\n")
+cat("Predicción:", as.character(rf_pred[idx_alta]), "\n")
+cat("Probabilidades:\n")
+print(predict(rf_model, X_test[idx_alta, ], type = "prob"))
+
+# Explicación completa
+cat("\n--- SHAPLEY Values ---\n")
+shap_alta <- Shapley$new(predictor, x.interest = X_test[idx_alta, ])
+plot(shap_alta) +
+  labs(title = "¿Por qué este vino es de ALTA calidad?",
+       subtitle = "Contribuciones de cada variable (SHAPLEY)") +
+  theme_minimal()
+
+cat("\n--- DALEX Break Down ---\n")
+bd_alta <- predict_parts(explainer_dalex, new_observation = X_test[idx_alta, ],
+                         type = "break_down")
+plot(bd_alta) +
+  labs(title = "Break Down - Vino de Alta Calidad") +
+  theme_minimal()
+```
+
+## 7.2 Explicar un Error del Modelo
+
+```{r caso-error}
+cat("=== CASO 2: Explicar un ERROR del Modelo ===\n\n")
+
+# Buscar un error: modelo predice Alta pero es Baja (falso positivo)
+errores <- which(y_test == "Baja" & rf_pred == "Alta")
+
+if(length(errores) > 0) {
+  idx_error <- errores[1]
+  
+  cat("Observación con ERROR:", idx_error, "\n")
+  cat("Valores reales:\n")
+  print(X_test[idx_error, ])
+  
+  cat("\nClase REAL:", as.character(y_test[idx_error]), "\n")
+  cat("PREDICCIÓN:", as.character(rf_pred[idx_error]), "❌ ERROR\n")
+  cat("Probabilidades:\n")
+  print(predict(rf_model, X_test[idx_error, ], type = "prob"))
+  
+  # ¿Por qué el modelo se equivocó?
+  cat("\n--- Análisis del Error ---\n")
+  shap_error <- Shapley$new(predictor, x.interest = X_test[idx_error, ])
+  plot(shap_error) +
+    labs(title = "¿Por qué el modelo predijo ALTA (incorrectamente)?",
+         subtitle = paste("Real: Baja | Predicho: Alta")) +
+    theme_minimal()
+  
+  bd_error <- predict_parts(explainer_dalex, new_observation = X_test[idx_error, ],
+                            type = "break_down")
+  plot(bd_error) +
+    labs(title = "Break Down - Error del Modelo",
+         subtitle = "Entendiendo el error") +
+    theme_minimal()
+} else {
+  cat("No hay errores de este tipo en el test set (¡el modelo es muy bueno!)\n")
+}
+```
+
+## 7.3 Recomendaciones para Mejorar un Vino
+
+```{r caso-mejora}
+cat("=== CASO 3: Recomendaciones para MEJORAR un Vino ===\n\n")
+
+# Tomar un vino de calidad Baja y ver qué cambiar para que sea Alta
+idx_baja <- which(y_test == "Baja")[1]
+
+cat("Vino de BAJA calidad (observación", idx_baja, "):\n")
+vino_original <- X_test[idx_baja, ]
+print(vino_original)
+
+cat("\nPredicción actual:\n")
+pred_original <- predict(rf_model, vino_original, type = "prob")
+print(pred_original)
+
+# Usar SHAPLEY para ver qué cambios tendrían más impacto
+shap_baja <- Shapley$new(predictor, x.interest = vino_original)
+
+cat("\nContribuciones actuales (SHAPLEY):\n")
+contribuciones <- shap_baja$results %>%
+  arrange(desc(abs(phi))) %>%
+  dplyr::select(feature, feature.value, phi)
+print(contribuciones)
+
+plot(shap_baja) +
+  labs(title = "¿Qué impide que este vino sea de Alta calidad?",
+       subtitle = "Variables con contribución negativa son oportunidades de mejora") +
+  theme_minimal()
+
+# Simular mejoras
+cat("\n=== SIMULACIÓN DE MEJORAS ===\n\n")
+
+# Identificar la variable con mayor contribución negativa hacia "Alta"
+var_mejorar <- contribuciones$feature[1]
+
+cat("Variable a mejorar:", var_mejorar, "\n")
+cat("Valor actual:", vino_original[[var_mejorar]], "\n")
+
+# Ver el PDP de esa variable para saber en qué dirección cambiar
+pdp_mejorar <- model_profile(explainer_dalex, variables = var_mejorar)
+plot(pdp_mejorar) +
+  labs(title = paste("PDP:", var_mejorar),
+       subtitle = "¿Cómo cambiar esta variable?") +
+  theme_minimal()
+```
+
+### Ejercicio 7.1: Casos prácticos
+
+**Pregunta 17**: ¿Las explicaciones te ayudan a entender qué hace que un vino sea de alta calidad?
+
+**Pregunta 18**: ¿Podrías dar recomendaciones concretas a un productor de vinos basándote en las explicaciones?
+
+---
+
+# COMPARACIÓN DE TÉCNICAS
+
+## Tabla Resumen
+
+```{r resumen-tecnicas}
+cat("=== COMPARACIÓN DE TÉCNICAS DE EXPLICABILIDAD ===\n\n")
+
+comparacion_xai <- data.frame(
+  Tecnica = c("Feature Importance", "Partial Dependence (PDP)", "ICE Plots", 
+              "LIME", "SHAPLEY", "DALEX Break Down"),
+  Tipo = c("Global", "Global", "Global/Local", "Local", "Local", "Local"),
+  Velocidad = c("Muy Rápida", "Media", "Lenta", "Media", "Muy Lenta", "Media"),
+  Precision = c("Baja", "Media", "Media-Alta", "Media", "Alta", "Alta"),
+  Interpretabilidad = c("Alta", "Alta", "Media", "Alta", "Media", "Alta"),
+  Uso_Principal = c("Ranking variables", "Relaciones marginales", 
+                    "Heterogeneidad", "Explicación individual",
+                    "Contribuciones justas", "Waterfall explicativo")
+)
+
+print(comparacion_xai)
+
+# Visualización
+ggplot(comparacion_xai, aes(x = Tipo, fill = Tipo)) +
+  geom_bar() +
+  labs(title = "Distribución de Técnicas por Tipo",
+       x = "Tipo de Explicabilidad", y = "Número de Técnicas") +
+  theme_minimal()
+```
+
+## Recomendaciones de Uso
+
+```{r recomendaciones}
+cat("=== CUÁNDO USAR CADA TÉCNICA ===\n\n")
+
+cat("1. FEATURE IMPORTANCE\n")
+cat("   Usa cuando: Quieres un ranking rápido de variables importantes\n")
+cat("   Cuidado: Puede ser engañosa con variables correlacionadas\n\n")
+
+cat("2. PARTIAL DEPENDENCE PLOTS (PDP)\n")
+cat("   Usa cuando: Quieres entender relaciones marginales\n")
+cat("   Cuidado: Asume independencia entre variables\n\n")
+
+cat("3. ICE PLOTS\n")
+cat("   Usa cuando: Sospechas de heterogeneidad o interacciones\n")
+cat("   Cuidado: Difícil de interpretar con muchas líneas\n\n")
+
+cat("4. LIME\n")
+cat("   Usa cuando: Necesitas explicar una predicción específica rápido\n")
+cat("   Cuidado: Puede ser inestable (diferentes ejecuciones, diferentes resultados)\n\n")
+
+cat("5. SHAPLEY\n")
+cat("   Usa cuando: Necesitas explicaciones locales robustas y justas\n")
+cat("   Cuidado: Computacionalmente costoso\n\n")
+
+cat("6. DALEX\n")
+cat("   Usa cuando: Quieres un análisis completo y consistente\n")
+cat("   Cuidado: Requiere familiaridad con el framework\n\n")
+```
+
+### Ejercicio 8.1: Selección de técnicas
+
+**Pregunta 19**: Si tuvieras que presentar resultados a un CEO no técnico, ¿qué 2-3 técnicas usarías?
+
+**Pregunta 20**: Si un cliente reclama una decisión del modelo, ¿qué técnica usarías para explicarle?
+
+---
+
+# CONCLUSIONES Y MEJORES PRÁCTICAS
+
+## Lecciones Clave
+
+```{r conclusiones}
+cat("=== CONCLUSIONES SOBRE EXPLICABILIDAD ===\n\n")
+
+cat("1. NO HAY UNA TÉCNICA PERFECTA\n")
+cat("   • Cada técnica tiene fortalezas y limitaciones\n")
+cat("   • Usa MÚLTIPLES técnicas para triangular resultados\n")
+cat("   • Sé escéptico si diferentes técnicas dan resultados muy diferentes\n\n")
+
+cat("2. CONTEXTO ES CLAVE\n")
+cat("   • Explicabilidad para expertos vs stakeholders vs reguladores\n")
+cat("   • Nivel de detalle depende de la audiencia\n")
+cat("   • Balance entre precisión y simplicidad\n\n")
+
+cat("3. CUIDADO CON INTERPRETACIONES ERRÓNEAS\n")
+cat("   • Correlación ≠ Causalidad\n")
+cat("   • Importancia ≠ Efecto directo\n")
+cat("   • Explicaciones locales ≠ Comportamiento global\n\n")
+
+cat("4. DOCUMENTACIÓN\n")
+cat("   • Documenta qué técnicas usaste y por qué\n")
+cat("   • Guarda las explicaciones junto con las predicciones\n")
+cat("   • Versiona modelos Y explicaciones\n\n")
+
+cat("5. ÉTICA Y REGULACIÓN\n")
+cat("   • GDPR requiere 'derecho a la explicación'\n")
+cat("   • Detecta y mitiga sesgos algorítmicos\n")
+cat("   • La explicabilidad NO justifica decisiones injustas\n\n")
+```
+
+## Workflow Recomendado
+
+```{r workflow}
+cat("=== WORKFLOW COMPLETO DE EXPLICABILIDAD ===\n\n")
+
+cat("PASO 1: ENTRENAMIENTO\n")
+cat("  ✓ Entrena modelo con buen rendimiento\n")
+cat("  ✓ Evalúa en conjunto de test/validación\n\n")
+
+cat("PASO 2: EXPLICABILIDAD GLOBAL\n")
+cat("  ✓ Feature Importance: ¿Qué variables importan?\n")
+cat("  ✓ PDPs: ¿Cómo se relacionan con la predicción?\n")
+cat("  ✓ Interacciones: ¿Hay efectos combinados?\n\n")
+
+cat("PASO 3: VALIDACIÓN DE EXPLICACIONES\n")
+cat("  ✓ ¿Tienen sentido en el contexto del dominio?\n")
+cat("  ✓ ¿Múltiples técnicas convergen?\n")
+cat("  ✓ ¿Hay variables inesperadas?\n\n")
+
+cat("PASO 4: EXPLICABILIDAD LOCAL\n")
+cat("  ✓ Selecciona observaciones clave (correctas, errores, edge cases)\n")
+cat("  ✓ SHAPLEY o LIME para explicaciones individuales\n")
+cat("  ✓ Compara explicaciones entre observaciones similares\n\n")
+
+cat("PASO 5: COMUNICACIÓN\n")
+cat("  ✓ Adapta visualizaciones a la audiencia\n")
+cat("  ✓ Reporta incertidumbre en las explicaciones\n")
+cat("  ✓ Proporciona ejemplos concretos\n\n")
+
+cat("PASO 6: MONITOREO\n")
+cat("  ✓ En producción, monitorea si las explicaciones cambian\n")
+cat("  ✓ Detecta concept drift\n")
+cat("  ✓ Re-explica periódicamente\n\n")
+```
+
+## Ejercicio Final: Proyecto Completo
+
+**Tarea Final**: Elige otro dataset (boston housing, titanic, diabetes, etc.) y:
+
+1. Entrena un modelo de caja negra (Random Forest, XGBoost, etc.)
+2. Aplica al menos 4 técnicas de explicabilidad diferentes
+3. Crea un reporte ejecutivo con:
+   - Top 5 variables más importantes
+   - 2-3 PDPs clave
+   - Explicación de 1 predicción correcta y 1 error
+   - Recomendaciones accionables
+4. Compara explicaciones entre técnicas
+
+**Pregunta 21**: ¿Qué aprendiste sobre tu modelo que NO sabías solo mirando métricas?
+
+**Pregunta 22**: ¿Las explicaciones te ayudaron a detectar problemas o sesgos?
+
+**Pregunta 23**: ¿Qué técnica fue más útil para comunicar resultados a no expertos?
+
+---
+
+# RECURSOS ADICIONALES
+
+## Librerías en R
+
+- **iml**: Interpretable Machine Learning (Molnar)
+- **DALEX**: Descriptive mAchine Learning EXplanations
+- **pdp**: Partial Dependence Plots
+- **lime**: Local Interpretable Model-agnostic Explanations
+- **shapviz**: Visualización de SHAP values
+- **vip**: Variable Importance Plots
+
+## Libros Recomendados
+
+1. **Christoph Molnar** - "Interpretable Machine Learning" (2022)
+   - Online gratis: https://christophm.github.io/interpretable-ml-book/
+   
+2. **Przemyslaw Biecek & Tomasz Burzykowski** - "Explanatory Model Analysis" (2021)
+   - Enfocado en DALEX
+   
+3. **Patrick Hall & Navdeep Gill** - "An Introduction to Machine Learning Interpretability" (2019)
+
+## Papers Clave
+
+- Ribeiro et al. (2016): "Why Should I Trust You?" - LIME
+- Lundberg & Lee (2017): "A Unified Approach to Interpreting Model Predictions" - SHAP
+- Friedman (2001): "Greedy Function Approximation: A Gradient Boosting Machine" - PDPs
+- Goldstein et al. (2015): "Peeking Inside the Black Box" - ICE Plots
+
+---
+
+**Fin del Laboratorio 7: Explicabilidad e Interpretabilidad**
+
+---
+
+## Resumen del Laboratorio
+
+En este laboratorio hemos aprendido:
+
+✅ **Qué es XAI** y por qué es crucial en ML moderno  
+✅ **Explicabilidad Global**: Feature Importance, PDPs, ICE plots  
+✅ **Explicabilidad Local**: LIME, SHAPLEY, DALEX Break Down  
+✅ **Frameworks completos**: DALEX e iml  
+✅ **Casos prácticos**: Explicar predicciones, errores, y dar recomendaciones  
+✅ **Comparación de técnicas** y cuándo usar cada una  
+✅ **Mejores prácticas** y workflow completo  
+
+**Mensaje final**: La explicabilidad NO es opcional - es fundamental para ML responsable, ético y confiable. ¡Nunca despliegues un modelo que no puedas explicar!
